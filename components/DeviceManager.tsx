@@ -333,7 +333,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
                     <h4 className="font-bold text-blue-800 text-sm mb-1">How to Connect?</h4>
                     <ol className="list-decimal list-inside text-xs text-blue-700 space-y-1">
                       <li>Open <strong>WhatsApp Business</strong> on your phone.</li>
-                      <li>Go to <strong>Settings</strong> > <strong>Linked Devices</strong>.</li>
+                      <li>Go to <strong>Settings</strong> {'>'} <strong>Linked Devices</strong>.</li>
                       <li>Scan the QR code.</li>
                     </ol>
                   </div>

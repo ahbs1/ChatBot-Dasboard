@@ -42,9 +42,9 @@ export const BackendLogicViewer: React.FC = () => {
             <p className="mb-2">npm install</p>
 
             <p className="text-gray-500 mb-2 mt-4"># 4. Create .env file</p>
-            <p className="mb-1">echo "SUPABASE_URL=..." >> .env</p>
-            <p className="mb-1">echo "SUPABASE_SERVICE_KEY=..." >> .env</p>
-            <p className="mb-2">echo "GEMINI_API_KEY=..." >> .env</p>
+            <p className="mb-1">echo "SUPABASE_URL=..." {'>'}{'>'} .env</p>
+            <p className="mb-1">echo "SUPABASE_SERVICE_KEY=..." {'>'}{'>'} .env</p>
+            <p className="mb-2">echo "GEMINI_API_KEY=..." {'>'}{'>'} .env</p>
 
             <p className="text-gray-500 mb-2 mt-4"># 5. Start with PM2 (Background Process)</p>
             <p className="mb-2">npm install -g pm2</p>
