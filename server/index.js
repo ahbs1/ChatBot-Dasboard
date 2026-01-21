@@ -9,7 +9,8 @@
  */
 
 import 'dotenv/config';
-import { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+// FIX: Changed import style for makeWASocket to default import
+import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from '@google/genai';
 import qrcode from 'qrcode-terminal';
@@ -133,7 +134,8 @@ async function startDevice(device) {
     const { state, saveCreds } = await useMultiFileAuthState(`auth_info_${device.id}`);
     const { version } = await fetchLatestBaileysVersion();
 
-    const sock = makeWASocket.default({
+    // FIX: Removed .default property access
+    const sock = makeWASocket({
         version,
         auth: state,
         printQRInTerminal: true, // Useful for CLI debugging
