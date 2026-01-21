@@ -31,6 +31,7 @@ const getChromiumPath = () => {
         '/usr/bin/chromium-browser', // Ubuntu/Debian/STB Armbian
         '/usr/bin/chromium',         // Arch/Alpine
         '/usr/bin/google-chrome-stable',
+        '/snap/bin/chromium',
         '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
         'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
     ];
@@ -120,11 +121,12 @@ async function startDevice(device) {
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
+            '--disable-dev-shm-usage', // Prevent /dev/shm shared memory issues
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--disable-gpu'
+            '--disable-gpu',
+            '--single-process' // Helps on some ARM builds
         ]
     };
 
@@ -135,7 +137,9 @@ async function startDevice(device) {
 
     const client = new Client({
         authStrategy: new LocalAuth({ clientId: device.id, dataPath: './auth_sessions' }),
-        puppeteer: puppeteerConfig
+        puppeteer: puppeteerConfig,
+        // Decrease restart/connection attempt frequency to save CPU
+        qrMaxRetries: 5,
     });
 
     clients[device.id] = client;
@@ -177,6 +181,12 @@ async function startDevice(device) {
     });
 
     client.on('message', async (msg) => {
+        // FILTER: Only process standard chat messages. Ignore 'e2e_notification', 'call_log', 'protocol', etc.
+        if (msg.type !== 'chat') return;
+        
+        // FILTER: Ignore status updates (broadcasts from contacts)
+        if (msg.isStatus) return;
+
         const chat = await msg.getChat();
         const contact = await msg.getContact();
         const waNumber = contact.number;
@@ -184,7 +194,7 @@ async function startDevice(device) {
 
         if (msg.fromMe || chat.isGroup) return;
 
-        console.log(`[Inbound] ${device.name}: ${text}`);
+        console.log(`[Inbound] ${device.name} from ${waNumber}: ${text}`);
 
         // Save Message
         await supabase.from('messages').insert({ 
@@ -216,6 +226,8 @@ async function startDevice(device) {
             const reply = await generateAIReply(text, device.id);
 
             if (reply) {
+                // Add slight delay to make it feel natural
+                await new Promise(r => setTimeout(r, 1500));
                 await client.sendMessage(msg.from, reply);
                 await supabase.from('messages').insert({ 
                     conversation_id: waNumber, message: reply, direction: 'outbound', status: 'sent' 
@@ -308,11 +320,11 @@ app.get('/scan/:deviceId', async (req, res) => {
     return res.json({ status: 'initializing', message: 'Initializing browser...' });
 });
 
-// B. Pairing Code (Not fully supported in basic WWJS, reverting to QR focus or generic message)
+// B. Pairing Code (EXPERIMENTAL)
 app.get('/pair-code/:deviceId', async (req, res) => {
     return res.json({ 
         status: 'error', 
-        message: 'Pairing Code is experimental in this library. Please use QR Scan.' 
+        message: 'Pairing Code not reliable on STB architecture. Use QR.' 
     });
 });
 
@@ -323,7 +335,7 @@ app.get('/sessions', (req, res) => {
 app.post('/reset/:deviceId', async (req, res) => {
     const { deviceId } = req.params;
     if (clients[deviceId]) {
-        await clients[deviceId].destroy();
+        try { await clients[deviceId].destroy(); } catch(e) {}
         delete clients[deviceId];
     }
     const path = `./auth_sessions/session-${deviceId}`;

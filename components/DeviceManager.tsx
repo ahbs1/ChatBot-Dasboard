@@ -205,7 +205,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
         setDeviceStatus('connected');
         alert("Device is already connected!");
       } else {
-        alert(data.message || "Failed to get code");
+        alert(data.message || "Feature not supported by the current backend logic (STB Optimized). Please use QR.");
       }
     } catch (e) {
        alert(`Failed to connect to Worker at ${workerUrl}. \n\nCheck if:\n1. The Server IP is correct.\n2. The STB is running.\n3. Your device is on the same WiFi.`);
@@ -492,45 +492,24 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
                   {/* --- DISCONNECTED / PAIRING CODE MODE --- */}
                   {deviceStatus !== 'connected' && connectMode === 'pairing' && (
                      <div className="flex flex-col items-center w-full max-w-xs">
-                        {!isWorkerReachable && (
-                          <div className="absolute top-0 w-full bg-red-100 text-red-700 text-[10px] py-2 px-4 text-center z-10 flex items-center justify-center gap-2">
-                              <AlertTriangle size={12}/>
-                              Cannot reach {workerUrl}. Check Server URL above.
-                          </div>
-                        )}
-
-                        {pairingCode ? (
-                            <div className="animate-in slide-in-from-bottom duration-300 text-center mt-4">
-                                <p className="text-xs text-gray-500 mb-2 font-medium">Enter this code on your phone:</p>
-                                <div className="bg-white border-2 border-dashed border-gray-300 p-4 rounded-xl mb-4">
-                                    <span className="text-3xl font-mono font-bold tracking-widest text-gray-800">
-                                        {pairingCode.slice(0,4)}-{pairingCode.slice(4)}
-                                    </span>
-                                </div>
-                                <div className="text-[10px] text-left text-gray-500 bg-blue-50 p-3 rounded-lg space-y-1">
-                                    <p>1. Open WhatsApp on Phone</p>
-                                    <p>2. Settings &gt; Linked Devices</p>
-                                    <p>3. Link a Device &gt; <strong>Link with phone number</strong></p>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="text-center mt-4">
-                                <div className="bg-orange-50 p-3 rounded-full text-orange-500 mb-3 mx-auto w-fit">
-                                    <Smartphone size={24} />
-                                </div>
-                                <p className="text-sm font-medium text-gray-700 mb-1">Link with Phone Number</p>
-                                <p className="text-xs text-gray-400 mb-4 px-4">
-                                    Use this if scanning QR code is difficult or camera is broken.
-                                </p>
-                                <Button 
-                                    onClick={fetchPairingCode} 
-                                    isLoading={isLoadingCode}
-                                    className="w-full"
-                                >
-                                    Generate Pairing Code
-                                </Button>
-                            </div>
-                        )}
+                        <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 text-center">
+                           <AlertTriangle size={24} className="text-orange-500 mx-auto mb-2" />
+                           <h4 className="font-bold text-orange-800 text-sm">Feature Unavailable</h4>
+                           <p className="text-xs text-gray-600 mt-2 leading-relaxed">
+                             Pairing Codes are currently unstable on low-power ARM (STB) architectures with the current backend engine.
+                           </p>
+                           <p className="text-xs font-bold text-gray-800 mt-3">
+                             Please use QR Scan for now.
+                           </p>
+                           <Button 
+                             onClick={() => setConnectMode('qr')} 
+                             variant="secondary" 
+                             className="mt-4 w-full text-xs"
+                             icon={<QrCode size={12} />}
+                           >
+                             Switch to QR Scan
+                           </Button>
+                        </div>
                      </div>
                   )}
 
