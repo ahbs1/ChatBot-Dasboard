@@ -43,21 +43,32 @@
   <script type="importmap">
 {
   "imports": {
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
-    "@google/genai": "https://esm.sh/@google/genai@^1.38.0",
+    "react": "https://esm.sh/react@18.2.0",
+    "react/": "https://esm.sh/react@18.2.0/",
+    "react-dom": "https://esm.sh/react-dom@18.2.0",
+    "react-dom/": "https://esm.sh/react-dom@18.2.0/",
+    "lucide-react": "https://esm.sh/lucide-react@0.263.1",
+    "@google/genai": "https://esm.sh/@google/genai@0.1.1",
     "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.0",
     "dotenv/": "https://esm.sh/dotenv@^17.2.3/",
-    "fs": "https://esm.sh/fs@^0.0.1-security",
     "@whiskeysockets/baileys": "https://esm.sh/@whiskeysockets/baileys@^7.0.0-rc.9",
-    "qrcode-terminal": "https://esm.sh/qrcode-terminal@^0.12.0"
+    "qrcode-terminal": "https://esm.sh/qrcode-terminal@^0.12.0",
+    "fs": "https://esm.sh/fs@^0.0.1-security"
   }
 }
 </script>
 </head>
   <body class="bg-gray-100 text-gray-900 overflow-hidden h-screen w-screen">
     <div id="root" class="h-full w-full"></div>
+    <script>
+      // Global Error Handler to debug "White Screen" issues
+      window.addEventListener('error', function(e) {
+        console.error("Global Error Caught:", e.message);
+        if(document.body) {
+           // Optional: Show error on screen if app fails to load completely
+           // document.body.innerHTML += '<div style="color:red; padding:20px;">App Error: ' + e.message + '</div>';
+        }
+      });
+    </script>
   </body>
 </html>

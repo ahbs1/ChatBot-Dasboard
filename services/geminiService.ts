@@ -39,9 +39,9 @@ export const generateEmbedding = async (text: string): Promise<number[] | null> 
   try {
     const response = await ai.models.embedContent({
       model: 'text-embedding-004',
-      content: text,
+      contents: text,
     });
-    return response.embedding.values || null;
+    return response.embeddings?.[0]?.values || null;
   } catch (error) {
     console.error("Error generating embedding:", error);
     return null;
