@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Smartphone, RefreshCw, CheckCircle, WifiOff, Plus, Trash, BellRing, Info, Mail, UserCheck, Pencil, QrCode, Keyboard, Server, Save, X } from 'lucide-react';
+import { Smartphone, RefreshCw, CheckCircle, WifiOff, Plus, Trash, BellRing, Info, Mail, UserCheck, Pencil, QrCode, Keyboard, Server, Save, X, Globe } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { Device } from '../types';
 import { Button } from './Button';
@@ -17,7 +17,17 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
   
   // Connection Mode State
   const [connectMode, setConnectMode] = useState<'qr' | 'pairing'>('qr');
-  const [workerUrl, setWorkerUrl] = useState<string>('http://localhost:3000'); // Default dev URL
+  
+  // Worker URL with LocalStorage Persistence
+  const [workerUrl, setWorkerUrl] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('worker_url') || 'http://localhost:3000';
+    }
+    return 'http://localhost:3000';
+  });
+
+  const [isWorkerReachable, setIsWorkerReachable] = useState<boolean | null>(null); // null = checking
+
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
   const [isLoadingCode, setIsLoadingCode] = useState(false);
@@ -32,6 +42,32 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
   const [formAdminNumber, setFormAdminNumber] = useState('');
 
   const prevStatusRef = useRef<string>('disconnected');
+
+  // Persist Worker URL and Check Health
+  useEffect(() => {
+    localStorage.setItem('worker_url', workerUrl);
+    
+    // Debounce check connectivity
+    const timer = setTimeout(() => {
+        checkWorkerConnectivity();
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [workerUrl]);
+
+  const checkWorkerConnectivity = async () => {
+    try {
+        // Just try to fetch sessions endpoint which is lightweight
+        const res = await fetch(`${workerUrl}/sessions`, { method: 'GET', signal: AbortSignal.timeout(3000) });
+        if (res.ok) {
+            setIsWorkerReachable(true);
+        } else {
+            setIsWorkerReachable(false);
+        }
+    } catch (e) {
+        setIsWorkerReachable(false);
+    }
+  };
 
   // Initial Selection
   useEffect(() => {
@@ -118,13 +154,6 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
     setDeviceStatus(newStatus);
     setLastUpdated(updated);
     
-    // If backend provides raw QR string via Supabase, we can use it, 
-    // OR we can rely on the manual fetch below for the Base64 image which is safer
-    if (newStatus === 'qr_ready' && rawQrString) {
-      // We'll let the fallback renderer handle the raw string if needed, 
-      // but prefer fetching image from API if user clicks refresh
-    }
-
     if (prevStatusRef.current === 'connected' && newStatus === 'disconnected') {
       triggerDisconnectAlert();
     }
@@ -156,7 +185,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
       }
       if (data.status) setDeviceStatus(data.status);
     } catch (e) {
-      alert("Failed to reach Worker API. Check URL.");
+      alert(`Failed to connect to Worker at ${workerUrl}. \n\nTip: If accessing from another device, use the Server IP (e.g. 192.168.1.x) instead of localhost.`);
     } finally {
       setIsLoadingCode(false);
     }
@@ -178,7 +207,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
         alert(data.message || "Failed to get code");
       }
     } catch (e) {
-      alert("Failed to reach Worker API. Check URL.");
+      alert(`Failed to connect to Worker at ${workerUrl}. \n\nTip: If accessing from another device, use the Server IP (e.g. 192.168.1.x) instead of localhost.`);
     } finally {
       setIsLoadingCode(false);
     }
@@ -190,7 +219,6 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
     if (!formName.trim()) return;
 
     if (isEditing && selectedDeviceId) {
-        // UPDATE Existing
         try {
             await supabase.from('devices').update({
                 name: formName,
@@ -198,17 +226,12 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
                 alert_email: formEmail,
                 admin_number: formAdminNumber
             }).eq('id', selectedDeviceId);
-            
-            // Optimistic Update handled by Parent usually, but here we can force reload or rely on parent
-            // Ideally onAddDevice prop should be renamed to onUpsertDevice or handled differently
-            // For now, reload page or rely on Realtime if implemented in App.tsx for devices list
-            window.location.reload(); // Simple refresh to reflect changes
+            window.location.reload(); 
         } catch (e) {
             console.error(e);
             alert("Failed to update device");
         }
     } else {
-        // CREATE New
         const id = `dev_${Date.now()}`;
         const newDevice: Device = {
             id,
@@ -231,21 +254,38 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
 
   return (
     <div className="flex-1 bg-gray-50 flex flex-col h-full p-8 overflow-y-auto">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <h1 className="text-2xl font-bold text-gray-800">Device Management</h1>
-        <div className="flex items-center gap-4">
-             {/* Worker URL Config */}
-             <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-full border border-gray-200 shadow-sm">
+        
+        {/* Worker Configuration Bar */}
+        <div className="flex items-center gap-3 bg-white p-2 rounded-lg border border-gray-200 shadow-sm w-full md:w-auto">
+             <div className="flex items-center gap-2 px-2">
+                {isWorkerReachable === true && <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" title="Worker Online" />}
+                {isWorkerReachable === false && <div className="w-2 h-2 rounded-full bg-red-500" title="Worker Offline" />}
+                {isWorkerReachable === null && <div className="w-2 h-2 rounded-full bg-gray-300" title="Checking..." />}
                 <Server size={14} className="text-gray-400"/>
-                <input 
+             </div>
+             
+             <div className="flex-1">
+                 <label className="text-[10px] text-gray-400 font-bold block">SERVER URL (Backend)</label>
+                 <input 
                   value={workerUrl} 
                   onChange={(e) => setWorkerUrl(e.target.value)}
-                  className="text-xs text-gray-600 outline-none w-40 bg-transparent"
-                  placeholder="Worker URL (e.g. http://localhost:3000)"
+                  className="text-xs text-gray-700 outline-none w-full md:w-56 bg-transparent font-mono placeholder-gray-300"
+                  placeholder="http://192.168.1.X:3000"
                 />
              </div>
-             <div className="text-xs text-gray-500 flex items-center gap-2">
-                <BellRing size={14} className={Notification.permission === 'granted' ? "text-green-500" : "text-gray-400"} />
+             
+             <div className="border-l pl-3 flex gap-2">
+                <a 
+                   href={workerUrl} 
+                   target="_blank" 
+                   rel="noreferrer"
+                   className={`p-1.5 rounded-md transition-colors ${isWorkerReachable ? 'text-green-600 hover:bg-green-50' : 'text-gray-300 hover:text-gray-500'}`}
+                   title="Test Link"
+                >
+                    <Globe size={14} />
+                </a>
              </div>
         </div>
       </div>
@@ -406,8 +446,14 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
                   {/* --- DISCONNECTED / QR MODE --- */}
                   {deviceStatus !== 'connected' && connectMode === 'qr' && (
                     <div className="flex flex-col items-center w-full">
+                       {!isWorkerReachable && (
+                          <div className="absolute top-0 w-full bg-red-100 text-red-700 text-[10px] py-1 text-center">
+                              Cannot connect to {workerUrl}. Fix the URL above.
+                          </div>
+                       )}
+                       
                        {qrImageUrl ? (
-                           <div className="relative group">
+                           <div className="relative group mt-4">
                                 <img 
                                     src={qrImageUrl} 
                                     alt="Scan QR" 
@@ -421,7 +467,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
                                 </div>
                            </div>
                        ) : (
-                           <div className="text-center">
+                           <div className="text-center mt-4">
                                {deviceStatus === 'qr_ready' ? (
                                    <div className="flex flex-col items-center gap-3">
                                        <QrCode size={48} className="text-gray-300" />
@@ -444,8 +490,14 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
                   {/* --- DISCONNECTED / PAIRING CODE MODE --- */}
                   {deviceStatus !== 'connected' && connectMode === 'pairing' && (
                      <div className="flex flex-col items-center w-full max-w-xs">
+                        {!isWorkerReachable && (
+                          <div className="absolute top-0 w-full bg-red-100 text-red-700 text-[10px] py-1 text-center">
+                              Cannot connect to {workerUrl}. Fix the URL above.
+                          </div>
+                        )}
+
                         {pairingCode ? (
-                            <div className="animate-in slide-in-from-bottom duration-300 text-center">
+                            <div className="animate-in slide-in-from-bottom duration-300 text-center mt-4">
                                 <p className="text-xs text-gray-500 mb-2 font-medium">Enter this code on your phone:</p>
                                 <div className="bg-white border-2 border-dashed border-gray-300 p-4 rounded-xl mb-4">
                                     <span className="text-3xl font-mono font-bold tracking-widest text-gray-800">
@@ -459,7 +511,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
                                 </div>
                             </div>
                         ) : (
-                            <div className="text-center">
+                            <div className="text-center mt-4">
                                 <div className="bg-orange-50 p-3 rounded-full text-orange-500 mb-3 mx-auto w-fit">
                                     <Smartphone size={24} />
                                 </div>
