@@ -99,7 +99,7 @@ export const KnowledgeBaseManager: React.FC<KnowledgeBaseManagerProps> = ({ docu
   };
 
   return (
-    <div className="flex-1 bg-gray-50 p-8 overflow-y-auto h-full">
+    <div className="flex-1 bg-gray-50 p-4 md:p-8 pb-24 overflow-y-auto h-full">
       <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8 h-full">
         
         {/* Left Column: Upload Form */}

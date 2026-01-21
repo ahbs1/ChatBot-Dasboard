@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Button } from './Button';
-import { Check, Copy, Server, FileText, Download, Terminal } from 'lucide-react';
+import { Check, Copy, Server, FileText, Download, Terminal, AlertTriangle } from 'lucide-react';
 
 export const BackendLogicViewer: React.FC = () => {
   return (
@@ -26,6 +26,29 @@ export const BackendLogicViewer: React.FC = () => {
             <li>/server/index.js (The Main Worker Logic)</li>
             <li>/server/package.json (Dependencies)</li>
           </ul>
+        </div>
+
+        {/* Troubleshooting Section */}
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+             <h4 className="font-bold text-yellow-800 text-sm mb-2 flex items-center gap-2">
+                <AlertTriangle size={16} />
+                Common Error: "MODULE_NOT_FOUND" or "cors" missing
+             </h4>
+             <p className="text-xs text-yellow-800 mb-2">
+                 If you see errors about missing 'cors' or 'baileys' in your STB logs, do this:
+             </p>
+             <div className="bg-black text-gray-300 p-3 rounded font-mono text-[10px] space-y-1">
+                 <p className="text-white"># 1. Update the code files on server first</p>
+                 <p>(Re-upload index.js and package.json)</p>
+                 <br/>
+                 <p className="text-white"># 2. Clean install</p>
+                 <p>cd /root/wa-worker</p>
+                 <p>rm -rf node_modules package-lock.json</p>
+                 <p>npm install</p>
+                 <br/>
+                 <p className="text-white"># 3. Restart</p>
+                 <p>pm2 restart wa-worker</p>
+             </div>
         </div>
 
         <div className="space-y-4">

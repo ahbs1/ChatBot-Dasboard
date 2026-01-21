@@ -334,9 +334,10 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-gray-100 font-sans antialiased">
-      {/* Sidebar Navigation */}
-      <div className="w-16 bg-gray-900 text-white flex flex-col items-center py-6 gap-6 z-20">
+    <div className="flex h-screen bg-gray-100 font-sans antialiased overflow-hidden">
+      
+      {/* Sidebar Navigation - DESKTOP ONLY */}
+      <div className="hidden md:flex w-16 bg-gray-900 text-white flex-col items-center py-6 gap-6 z-20">
         <div className="mb-4">
            <LayoutGrid className="text-wa-light" size={28} />
         </div>
@@ -388,90 +389,145 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* Main Content Area */}
+      <div className="flex flex-1 flex-col h-full overflow-hidden relative">
         
-        {activeView === AppView.DASHBOARD && (
-          <>
-            <ChatList 
-              contacts={contacts} 
-              devices={devices}
-              selectedContactId={selectedContactId} 
-              onSelectContact={(c) => setSelectedContactId(c.id)} 
-            />
-
-            {selectedContact ? (
-              <ChatWindow 
-                contact={selectedContact}
-                messages={currentMessages}
-                ragDocs={ragDocs.filter(d => d.deviceId === selectedContact.deviceId)} 
-                onSendMessage={handleSendMessage}
-                onEditMessage={handleEditMessage} 
-                onToggleBot={handleToggleBot}
-              />
-            ) : (
-              <div className="flex-1 bg-wa-bg flex flex-col items-center justify-center border-b-8 border-wa-green">
-                 {loadingInitial ? (
-                    <div className="animate-spin text-wa-green mb-4"><Activity size={40} /></div>
-                 ) : (
-                    <div className="bg-white p-8 rounded-full shadow-lg mb-6">
-                        <LayoutGrid size={64} className="text-wa-green" />
-                    </div>
-                 )}
-                 <h1 className="text-3xl font-light text-gray-700 mb-2">WhatsAgent Multi-Device</h1>
-                 <p className="text-gray-500 max-w-md text-center">
-                   Select a conversation from the left. <br/>
-                   The <strong>Custom Worker</strong> will handle message delivery.
-                 </p>
+        <div className="flex flex-1 overflow-hidden relative">
+          
+          {activeView === AppView.DASHBOARD && (
+            <>
+              {/* Chat List: Hidden on Mobile if Contact Selected */}
+              <div className={`${selectedContactId ? 'hidden md:flex' : 'flex'} w-full md:w-auto h-full bg-white border-r border-gray-200 z-10`}>
+                <ChatList 
+                    contacts={contacts} 
+                    devices={devices}
+                    selectedContactId={selectedContactId} 
+                    onSelectContact={(c) => setSelectedContactId(c.id)} 
+                />
               </div>
-            )}
 
-            {selectedContact && (
-              <KnowledgePanel 
-                documents={ragDocs.filter(d => d.deviceId === selectedContact.deviceId)} 
-                isVisible={true}
-              />
-            )}
-          </>
-        )}
+              {/* Chat Window: Hidden on Mobile if NO Contact Selected */}
+              <div className={`${!selectedContactId ? 'hidden md:flex' : 'flex'} flex-1 h-full bg-wa-bg relative`}>
+                {selectedContact ? (
+                    <ChatWindow 
+                        contact={selectedContact}
+                        messages={currentMessages}
+                        ragDocs={ragDocs.filter(d => d.deviceId === selectedContact.deviceId)} 
+                        onSendMessage={handleSendMessage}
+                        onEditMessage={handleEditMessage} 
+                        onToggleBot={handleToggleBot}
+                        onBack={() => setSelectedContactId(null)} // Mobile: Go back to list
+                    />
+                ) : (
+                    <div className="flex-1 bg-wa-bg flex flex-col items-center justify-center border-b-8 border-wa-green h-full">
+                        {loadingInitial ? (
+                            <div className="animate-spin text-wa-green mb-4"><Activity size={40} /></div>
+                        ) : (
+                            <div className="bg-white p-8 rounded-full shadow-lg mb-6">
+                                <LayoutGrid size={64} className="text-wa-green" />
+                            </div>
+                        )}
+                        <h1 className="text-3xl font-light text-gray-700 mb-2">WhatsAgent</h1>
+                        <p className="text-gray-500 max-w-md text-center text-sm px-4">
+                        Select a conversation to start chatting.
+                        </p>
+                    </div>
+                )}
+              </div>
 
-        {activeView === AppView.LEADS && (
-           <LeadsTable devices={devices} /> 
-        )}
+              {/* Knowledge Panel - Desktop Only */}
+              {selectedContact && (
+                <div className="hidden xl:flex h-full">
+                    <KnowledgePanel 
+                        documents={ragDocs.filter(d => d.deviceId === selectedContact.deviceId)} 
+                        isVisible={true}
+                    />
+                </div>
+              )}
+            </>
+          )}
 
-        {activeView === AppView.KNOWLEDGE && (
-           <KnowledgeBaseManager 
-             documents={ragDocs}
-             devices={devices}
-             onAddDocuments={handleAddDocuments}
-           />
-        )}
-
-        {activeView === AppView.DEVICES && (
-           <DeviceManager 
-              devices={devices} 
-              onAddDevice={handleAddDevice}
-              onDeleteDevice={handleDeleteDevice}
-           />
-        )}
-        
-        {activeView === AppView.SETTINGS && (
-           <div className="flex-1 bg-gray-50 p-8 overflow-y-auto">
-             <div className="max-w-3xl mx-auto space-y-6">
-               <h1 className="text-2xl font-bold text-gray-800">System Configuration</h1>
-               
-               {/* Integration Guide */}
-               <IntegrationGuide />
-               
-               <hr className="border-gray-200 my-8" />
-               
-               <h2 className="text-xl font-bold text-gray-700">Technical Resources</h2>
-               <DatabaseSetup />
-               <BackendLogicViewer />
-               <RealtimeSetup />
+          {/* Wrappers for other views with padding for Bottom Nav */}
+          {activeView === AppView.LEADS && (
+             <div className="flex-1 h-full overflow-hidden">
+                <LeadsTable devices={devices} /> 
              </div>
-           </div>
-        )}
+          )}
+
+          {activeView === AppView.KNOWLEDGE && (
+             <div className="flex-1 h-full overflow-hidden">
+                <KnowledgeBaseManager 
+                    documents={ragDocs}
+                    devices={devices}
+                    onAddDocuments={handleAddDocuments}
+                />
+             </div>
+          )}
+
+          {activeView === AppView.DEVICES && (
+             <div className="flex-1 h-full overflow-hidden">
+                <DeviceManager 
+                    devices={devices} 
+                    onAddDevice={handleAddDevice}
+                    onDeleteDevice={handleDeleteDevice}
+                />
+             </div>
+          )}
+          
+          {activeView === AppView.SETTINGS && (
+             <div className="flex-1 bg-gray-50 p-4 md:p-8 pb-24 overflow-y-auto">
+               <div className="max-w-3xl mx-auto space-y-6">
+                 <h1 className="text-2xl font-bold text-gray-800">System Configuration</h1>
+                 <IntegrationGuide />
+                 <hr className="border-gray-200 my-8" />
+                 <h2 className="text-xl font-bold text-gray-700">Technical Resources</h2>
+                 <DatabaseSetup />
+                 <BackendLogicViewer />
+                 <RealtimeSetup />
+               </div>
+             </div>
+          )}
+
+        </div>
+
+        {/* Bottom Navigation Bar - MOBILE ONLY */}
+        <div className="md:hidden bg-white border-t border-gray-200 flex justify-around items-center h-16 shrink-0 z-30 fixed bottom-0 left-0 right-0 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] pb-safe">
+            <button 
+                onClick={() => { setActiveView(AppView.DASHBOARD); setSelectedContactId(null); }} 
+                className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.DASHBOARD ? 'text-wa-green' : 'text-gray-400'}`}
+            >
+                <MessageSquare size={20} />
+                <span className="text-[10px] font-medium">Chats</span>
+            </button>
+            <button 
+                onClick={() => setActiveView(AppView.LEADS)} 
+                className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.LEADS ? 'text-wa-green' : 'text-gray-400'}`}
+            >
+                <Users size={20} />
+                <span className="text-[10px] font-medium">Leads</span>
+            </button>
+            <button 
+                onClick={() => setActiveView(AppView.KNOWLEDGE)} 
+                className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.KNOWLEDGE ? 'text-wa-green' : 'text-gray-400'}`}
+            >
+                <BookOpen size={20} />
+                <span className="text-[10px] font-medium">RAG</span>
+            </button>
+            <button 
+                onClick={() => setActiveView(AppView.DEVICES)} 
+                className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.DEVICES ? 'text-wa-green' : 'text-gray-400'}`}
+            >
+                <Smartphone size={20} />
+                <span className="text-[10px] font-medium">Device</span>
+            </button>
+            <button 
+                onClick={() => setActiveView(AppView.SETTINGS)} 
+                className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.SETTINGS ? 'text-wa-green' : 'text-gray-400'}`}
+            >
+                <Settings size={20} />
+                <span className="text-[10px] font-medium">Config</span>
+            </button>
+        </div>
 
       </div>
     </div>

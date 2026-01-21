@@ -2,11 +2,10 @@
  * WHATSAGENT WORKER + API (STB/Linux Optimized)
  * 
  * Fixes Applied:
- * 1. Added Pairing Code Support (More stable than QR for STB).
- * 2. Increased Connection Timeouts for slower CPUs.
- * 3. Added Pino Logger for better performance.
+ * 1. Removed 'cors' dependency (Use native headers) to fix install errors.
+ * 2. Added Pairing Code Support.
+ * 3. Increased Connection Timeouts.
  * 4. Added "Nuclear" Session Reset API.
- * 5. Enabled CORS for Frontend access.
  */
 
 import 'dotenv/config';
@@ -17,7 +16,6 @@ import QRCode from 'qrcode';
 import crypto from 'crypto';
 import pino from 'pino';
 import fs from 'fs';
-import cors from 'cors';
 
 // --- POLYFILLS ---
 if (!global.crypto) {
@@ -59,7 +57,17 @@ const app = express();
 
 // Middleware
 app.use(express.json());
-app.use(cors()); // Allow all origins (Adjust for production if needed)
+
+// --- MANUAL CORS (No dependency required) ---
+app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*"); // Allow any frontend to access
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
 
 // Session Store
 const sessions = {}; 

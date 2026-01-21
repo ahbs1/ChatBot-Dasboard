@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Smartphone, RefreshCw, CheckCircle, WifiOff, Plus, Trash, BellRing, Info, Mail, UserCheck, Pencil, QrCode, Keyboard, Server, Save, X, Globe } from 'lucide-react';
+import { Smartphone, RefreshCw, CheckCircle, WifiOff, Plus, Trash, BellRing, Info, Mail, UserCheck, Pencil, QrCode, Keyboard, Server, Save, X, Globe, AlertTriangle } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { Device } from '../types';
 import { Button } from './Button';
@@ -57,6 +57,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
 
   const checkWorkerConnectivity = async () => {
     try {
+        setIsWorkerReachable(null);
         // Just try to fetch sessions endpoint which is lightweight
         const res = await fetch(`${workerUrl}/sessions`, { method: 'GET', signal: AbortSignal.timeout(3000) });
         if (res.ok) {
@@ -185,7 +186,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
       }
       if (data.status) setDeviceStatus(data.status);
     } catch (e) {
-      alert(`Failed to connect to Worker at ${workerUrl}. \n\nTip: If accessing from another device, use the Server IP (e.g. 192.168.1.x) instead of localhost.`);
+      alert(`Failed to connect to Worker at ${workerUrl}. \n\nCheck if:\n1. The Server IP is correct.\n2. The STB is running.\n3. Your device is on the same WiFi.`);
     } finally {
       setIsLoadingCode(false);
     }
@@ -207,7 +208,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
         alert(data.message || "Failed to get code");
       }
     } catch (e) {
-      alert(`Failed to connect to Worker at ${workerUrl}. \n\nTip: If accessing from another device, use the Server IP (e.g. 192.168.1.x) instead of localhost.`);
+       alert(`Failed to connect to Worker at ${workerUrl}. \n\nCheck if:\n1. The Server IP is correct.\n2. The STB is running.\n3. Your device is on the same WiFi.`);
     } finally {
       setIsLoadingCode(false);
     }
@@ -253,21 +254,21 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
   const selectedDevice = devices.find(d => d.id === selectedDeviceId);
 
   return (
-    <div className="flex-1 bg-gray-50 flex flex-col h-full p-8 overflow-y-auto">
+    <div className="flex-1 bg-gray-50 flex flex-col h-full p-4 md:p-8 pb-24 overflow-y-auto">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <h1 className="text-2xl font-bold text-gray-800">Device Management</h1>
         
         {/* Worker Configuration Bar */}
         <div className="flex items-center gap-3 bg-white p-2 rounded-lg border border-gray-200 shadow-sm w-full md:w-auto">
              <div className="flex items-center gap-2 px-2">
-                {isWorkerReachable === true && <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" title="Worker Online" />}
-                {isWorkerReachable === false && <div className="w-2 h-2 rounded-full bg-red-500" title="Worker Offline" />}
-                {isWorkerReachable === null && <div className="w-2 h-2 rounded-full bg-gray-300" title="Checking..." />}
+                {isWorkerReachable === true && <div className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" title="Worker Online" />}
+                {isWorkerReachable === false && <div className="w-2.5 h-2.5 rounded-full bg-red-500" title="Worker Offline" />}
+                {isWorkerReachable === null && <div className="w-2.5 h-2.5 rounded-full bg-gray-300 animate-pulse" title="Checking..." />}
                 <Server size={14} className="text-gray-400"/>
              </div>
              
              <div className="flex-1">
-                 <label className="text-[10px] text-gray-400 font-bold block">SERVER URL (Backend)</label>
+                 <label className="text-[9px] text-gray-400 font-bold block uppercase tracking-wider">Server URL (Worker)</label>
                  <input 
                   value={workerUrl} 
                   onChange={(e) => setWorkerUrl(e.target.value)}
@@ -282,7 +283,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
                    target="_blank" 
                    rel="noreferrer"
                    className={`p-1.5 rounded-md transition-colors ${isWorkerReachable ? 'text-green-600 hover:bg-green-50' : 'text-gray-300 hover:text-gray-500'}`}
-                   title="Test Link"
+                   title="Test Link in New Tab"
                 >
                     <Globe size={14} />
                 </a>
@@ -447,8 +448,9 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
                   {deviceStatus !== 'connected' && connectMode === 'qr' && (
                     <div className="flex flex-col items-center w-full">
                        {!isWorkerReachable && (
-                          <div className="absolute top-0 w-full bg-red-100 text-red-700 text-[10px] py-1 text-center">
-                              Cannot connect to {workerUrl}. Fix the URL above.
+                          <div className="absolute top-0 w-full bg-red-100 text-red-700 text-[10px] py-2 px-4 text-center z-10 flex items-center justify-center gap-2">
+                              <AlertTriangle size={12}/>
+                              Cannot reach {workerUrl}. Check Server URL above.
                           </div>
                        )}
                        
@@ -491,8 +493,9 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
                   {deviceStatus !== 'connected' && connectMode === 'pairing' && (
                      <div className="flex flex-col items-center w-full max-w-xs">
                         {!isWorkerReachable && (
-                          <div className="absolute top-0 w-full bg-red-100 text-red-700 text-[10px] py-1 text-center">
-                              Cannot connect to {workerUrl}. Fix the URL above.
+                          <div className="absolute top-0 w-full bg-red-100 text-red-700 text-[10px] py-2 px-4 text-center z-10 flex items-center justify-center gap-2">
+                              <AlertTriangle size={12}/>
+                              Cannot reach {workerUrl}. Check Server URL above.
                           </div>
                         )}
 

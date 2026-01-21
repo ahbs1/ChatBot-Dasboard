@@ -51,24 +51,24 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ devices }) => {
   });
 
   return (
-    <div className="flex-1 bg-gray-50 p-8 h-full overflow-hidden flex flex-col">
+    <div className="flex-1 bg-gray-50 p-4 md:p-8 pb-24 h-full overflow-hidden flex flex-col">
       <div className="flex justify-between items-center mb-6">
         <div>
            <h1 className="text-2xl font-bold text-gray-800">Leads Captured</h1>
            <p className="text-sm text-gray-500">Customer data automatically extracted by AI from conversations.</p>
         </div>
-        <div className="bg-white px-3 py-1 rounded-full border text-xs font-medium text-gray-600">
+        <div className="bg-white px-3 py-1 rounded-full border text-xs font-medium text-gray-600 hidden md:block">
             Total: {filteredLeads.length}
         </div>
       </div>
 
       {/* Filters */}
       <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm mb-6 flex flex-col md:flex-row gap-4 justify-between items-center">
-        <div className="flex gap-2 items-center w-full md:w-auto overflow-x-auto">
-            <span className="text-xs font-bold text-gray-500 uppercase mr-2">Filter:</span>
+        <div className="flex gap-2 items-center w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
+            <span className="text-xs font-bold text-gray-500 uppercase mr-2 hidden md:inline">Filter:</span>
             <button 
                 onClick={() => setFilterDeviceId('all')}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border whitespace-nowrap ${
                 filterDeviceId === 'all' ? 'bg-gray-800 text-white border-gray-800' : 'bg-gray-100 text-gray-600 border-transparent hover:bg-gray-200'
                 }`}
             >
@@ -78,7 +78,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ devices }) => {
                 <button 
                 key={dev.id}
                 onClick={() => setFilterDeviceId(dev.id)}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border flex items-center gap-1 ${
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border flex items-center gap-1 whitespace-nowrap ${
                     filterDeviceId === dev.id ? 'bg-white border-blue-500 text-blue-600 ring-1 ring-blue-500' : 'bg-gray-100 text-gray-600 border-transparent hover:bg-gray-200'
                 }`}
                 >
@@ -103,7 +103,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({ devices }) => {
       {/* Table */}
       <div className="bg-white border border-gray-200 rounded-lg shadow-sm flex-1 overflow-hidden flex flex-col">
         <div className="overflow-x-auto flex-1">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full text-left border-collapse min-w-[600px]">
                 <thead className="bg-gray-50 sticky top-0 z-10">
                     <tr>
                         <th className="p-4 text-xs font-semibold text-gray-500 uppercase border-b">Customer</th>
