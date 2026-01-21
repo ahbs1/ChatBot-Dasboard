@@ -6,6 +6,7 @@
  * 2. Increased Connection Timeouts for slower CPUs.
  * 3. Added Pino Logger for better performance.
  * 4. Added "Nuclear" Session Reset API.
+ * 5. Enabled CORS for Frontend access.
  */
 
 import 'dotenv/config';
@@ -16,6 +17,7 @@ import QRCode from 'qrcode';
 import crypto from 'crypto';
 import pino from 'pino';
 import fs from 'fs';
+import cors from 'cors';
 
 // --- POLYFILLS ---
 if (!global.crypto) {
@@ -54,7 +56,10 @@ if (!SUPABASE_URL || !SUPABASE_KEY || !GEMINI_API_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 const app = express();
+
+// Middleware
 app.use(express.json());
+app.use(cors()); // Allow all origins (Adjust for production if needed)
 
 // Session Store
 const sessions = {}; 
@@ -163,10 +168,7 @@ async function startDevice(device, usePairingCode = false) {
                 const code = await sock.requestPairingCode(phoneNumber);
                 console.log(`[Pairing] CODE: ${code}`);
                 pairingCodeCache[device.id] = code;
-                
-                // Update Supabase with code so frontend can see it (Optional)
-                // Or just rely on the API /get-code endpoint
-            }, 3000);
+            }, 4000);
         } catch (err) {
             console.error('[Pairing Error]', err);
         }
@@ -328,7 +330,7 @@ app.get('/scan/:deviceId', async (req, res) => {
 
     if (qrCache[deviceId]) {
         const qrImage = await QRCode.toDataURL(qrCache[deviceId]);
-        return res.json({ status: 'qr_ready', qr_image: qrImage });
+        return res.json({ status: 'qr_ready', qr_string: qrCache[deviceId], qr_image: qrImage });
     } 
     
     return res.json({ status: 'initializing', message: 'Please wait...' });
@@ -366,7 +368,7 @@ app.get('/pair-code/:deviceId', async (req, res) => {
             clearInterval(checkCode);
             return res.json({ status: 'code_ready', code: pairingCodeCache[deviceId] });
         }
-        if (attempts > 10) {
+        if (attempts > 15) { // Wait 15s
             clearInterval(checkCode);
             return res.json({ status: 'timeout', message: 'Generating code took too long. Try again.' });
         }
