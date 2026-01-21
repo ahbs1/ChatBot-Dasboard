@@ -1,11 +1,9 @@
 /**
- * WHATSAGENT WORKER + API (STB/Linux Optimized)
+ * WHATSAGENT WORKER + API (Whatsapp-Web.JS Version)
  * 
- * Fixes Applied:
- * 1. Removed 'cors' dependency (Use native headers) to fix install errors.
- * 2. Added Pairing Code Support.
- * 3. Increased Connection Timeouts.
- * 4. Added "Nuclear" Session Reset API.
+ * Logic Rewritten for stability using Puppeteer.
+ * REQUIREMENT FOR STB/LINUX:
+ * Run: sudo apt-get install chromium-browser
  */
 
 import 'dotenv/config';
@@ -13,30 +11,12 @@ import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from '@google/genai';
 import express from 'express';
 import QRCode from 'qrcode'; 
-import crypto from 'crypto';
 import pino from 'pino';
 import fs from 'fs';
 
-// --- POLYFILLS ---
-if (!global.crypto) {
-    global.crypto = crypto.webcrypto || crypto;
-}
-
-// --- ROBUST BAILEYS IMPORT ---
-import * as Baileys from '@whiskeysockets/baileys';
-
-const getBaileysExport = (key) => {
-    if (Baileys[key]) return Baileys[key];
-    if (Baileys.default && Baileys.default[key]) return Baileys.default[key];
-    if (key === 'makeWASocket' && typeof Baileys.default === 'function') return Baileys.default;
-    return null;
-};
-
-const makeWASocket = getBaileysExport('makeWASocket') || Baileys.default;
-const useMultiFileAuthState = getBaileysExport('useMultiFileAuthState');
-const DisconnectReason = getBaileysExport('DisconnectReason');
-const fetchLatestBaileysVersion = getBaileysExport('fetchLatestBaileysVersion');
-const makeCacheableSignalKeyStore = getBaileysExport('makeCacheableSignalKeyStore');
+// --- WHATSAPP-WEB.JS IMPORT (ESM Compatible) ---
+import pkg from 'whatsapp-web.js';
+const { Client, LocalAuth } = pkg;
 
 // --- CONFIG ---
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -44,6 +24,23 @@ const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const CONFIDENCE_THRESHOLD = 0.65;
 const PORT = process.env.PORT || 3000;
+
+// Auto-detect Chromium Path (Common paths for Linux/STB/Mac/Win)
+const getChromiumPath = () => {
+    const paths = [
+        '/usr/bin/chromium-browser', // Ubuntu/Debian/STB Armbian
+        '/usr/bin/chromium',         // Arch/Alpine
+        '/usr/bin/google-chrome-stable',
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+    ];
+    for (const path of paths) {
+        if (fs.existsSync(path)) return path;
+    }
+    return null; // Let Puppeteer try to find it or download it
+};
+
+const EXECUTABLE_PATH = getChromiumPath();
 
 if (!SUPABASE_URL || !SUPABASE_KEY || !GEMINI_API_KEY) {
     console.error("❌ MISSING ENV VARS. Check .env file.");
@@ -54,31 +51,25 @@ if (!SUPABASE_URL || !SUPABASE_KEY || !GEMINI_API_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 const app = express();
+const logger = pino({ level: 'info' }); 
 
 // Middleware
 app.use(express.json());
-
-// --- MANUAL CORS (No dependency required) ---
 app.use((req, res, next) => {
-    res.header("Access-Control-Allow-Origin", "*"); // Allow any frontend to access
+    res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
     res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    if (req.method === 'OPTIONS') {
-        return res.sendStatus(200);
-    }
+    if (req.method === 'OPTIONS') return res.sendStatus(200);
     next();
 });
 
-// Session Store
-const sessions = {}; 
+// --- CLIENT MANAGER ---
+// whatsapp-web.js is heavy. We store clients here.
+const clients = {}; 
 const qrCache = {}; 
-const pairingCodeCache = {}; // Cache for Pairing Codes
-
-// Logger (Low overhead for STB)
-const logger = pino({ level: 'warn' }); 
 
 /**
- * 1. AI Logic
+ * 1. AI Logic (Same as before)
  */
 async function generateAIReply(userText, deviceId) {
     try {
@@ -88,7 +79,7 @@ async function generateAIReply(userText, deviceId) {
         });
         const embedding = embedResult.embedding.values;
 
-        const { data: docs, error } = await supabase.rpc('match_documents', {
+        const { data: docs } = await supabase.rpc('match_documents', {
             query_embedding: embedding,
             match_threshold: CONFIDENCE_THRESHOLD, 
             match_count: 3,
@@ -116,177 +107,142 @@ async function generateAIReply(userText, deviceId) {
 }
 
 /**
- * 2. Handover Logic
+ * 2. Start a Client (WWJS)
  */
-async function handleHandover(sock, remoteJid, deviceId, adminNumber) {
-    await sock.sendMessage(remoteJid, { text: "Mohon tunggu sebentar, staf kami akan segera membantu Anda. 😊" });
-    const waNumber = remoteJid.replace('@s.whatsapp.net', '');
-    
-    await supabase.from('conversations')
-        .update({ mode: 'agent', last_active: new Date() })
-        .eq('wa_number', waNumber);
-
-    if (adminNumber) {
-        const adminJid = adminNumber.includes('@') ? adminNumber : `${adminNumber}@s.whatsapp.net`;
-        await sock.sendMessage(adminJid, { 
-            text: `⚠️ *HANDOVER REQUEST*\n\nUser: wa.me/${waNumber}\nMsg: _(Bot tidak tahu jawaban)_`
-        });
-    }
-}
-
-/**
- * 3. Start a Single Device Connection (Optimized)
- */
-async function startDevice(device, usePairingCode = false) {
-    if (sessions[device.id]) return;
+async function startDevice(device) {
+    if (clients[device.id]) return;
 
     console.log(`[Init] Starting Device: ${device.name} (${device.id})`);
-
-    const { state, saveCreds } = await useMultiFileAuthState(`auth_info_${device.id}`);
     
-    // STB Optimization: Use specific browser config to avoid 401/515
-    const sock = makeWASocket({
-        logger: logger,
-        auth: {
-            creds: state.creds,
-            keys: makeCacheableSignalKeyStore(state.keys, logger),
-        },
-        printQRInTerminal: !usePairingCode, // Only print QR if NOT using pairing code
-        browser: ["Ubuntu", "Chrome", "20.0.04"], // Pretend to be Linux Chrome
-        generateHighQualityLinkPreview: true,
-        // TIMEOUT TWEAKS FOR SLOW DEVICES
-        connectTimeoutMs: 60000, 
-        defaultQueryTimeoutMs: 60000,
-        keepAliveIntervalMs: 10000, 
-        emitOwnEvents: true,
-        fireInitQueries: false, 
-        syncFullHistory: false
-    });
+    // Config for STB/Low Resource
+    const puppeteerConfig = {
+        headless: true,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu'
+        ]
+    };
 
-    sessions[device.id] = sock;
-
-    // --- PAIRING CODE LOGIC ---
-    if (usePairingCode && !sock.authState.creds.registered) {
-        try {
-            // Wait 2 seconds for socket to initialize
-            setTimeout(async () => {
-                const phoneNumber = device.phone_number.replace(/[^0-9]/g, '');
-                console.log(`[Pairing] Requesting code for ${phoneNumber}...`);
-                
-                const code = await sock.requestPairingCode(phoneNumber);
-                console.log(`[Pairing] CODE: ${code}`);
-                pairingCodeCache[device.id] = code;
-            }, 4000);
-        } catch (err) {
-            console.error('[Pairing Error]', err);
-        }
+    if (EXECUTABLE_PATH) {
+        console.log(`[Puppeteer] Using System Chromium: ${EXECUTABLE_PATH}`);
+        puppeteerConfig.executablePath = EXECUTABLE_PATH;
     }
 
-    // Heartbeat
-    const heartbeatParams = setInterval(async () => {
-        try {
-            await supabase.from('system_status').upsert({ id: device.id, updated_at: new Date() });
-        } catch(e) {}
-    }, 60000);
-
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
-
-        if (qr && !usePairingCode) {
-            console.log(`[QR] Device ${device.id} NEW QR GENERATED.`);
-            qrCache[device.id] = qr; 
-            await supabase.from('system_status').upsert({ 
-                id: device.id, status: 'qr_ready', qr_code: qr, updated_at: new Date() 
-            });
-        }
-
-        if (connection === 'close') {
-            clearInterval(heartbeatParams);
-            delete sessions[device.id];
-            delete qrCache[device.id];
-            delete pairingCodeCache[device.id];
-
-            // ROBUST RECONNECT LOGIC
-            const code = lastDisconnect?.error?.output?.statusCode;
-            const shouldReconnect = code !== DisconnectReason.loggedOut;
-            
-            console.log(`[Close] Device ${device.id} disconnected (Code: ${code}). Reconnecting: ${shouldReconnect}`);
-            
-            await supabase.from('system_status').upsert({ 
-                id: device.id, status: 'disconnected', updated_at: new Date() 
-            });
-
-            if (shouldReconnect) {
-                // Exponential backoff for STB stability
-                setTimeout(() => startDevice(device, false), 5000); 
-            } else {
-                console.log(`[Stop] Device ${device.id} logged out. Clean session required.`);
-                // Optional: fs.rmSync(`auth_info_${device.id}`, { recursive: true, force: true });
-            }
-        } else if (connection === 'open') {
-            console.log(`[Open] Device ${device.id} is READY!`);
-            delete qrCache[device.id]; 
-            delete pairingCodeCache[device.id];
-
-            await supabase.from('system_status').upsert({ 
-                id: device.id, status: 'connected', qr_code: null, updated_at: new Date() 
-            });
-        }
+    const client = new Client({
+        authStrategy: new LocalAuth({ clientId: device.id, dataPath: './auth_sessions' }),
+        puppeteer: puppeteerConfig
     });
 
-    sock.ev.on('creds.update', saveCreds);
+    clients[device.id] = client;
 
-    sock.ev.on('messages.upsert', async ({ messages, type }) => {
-        if (type !== 'notify') return;
+    // --- EVENTS ---
 
-        for (const m of messages) {
-            if (!m.message || m.key.fromMe) continue;
+    client.on('qr', async (qr) => {
+        console.log(`[QR] Generated for ${device.name}`);
+        qrCache[device.id] = qr;
+        await supabase.from('system_status').upsert({ 
+            id: device.id, status: 'qr_ready', qr_code: qr, updated_at: new Date() 
+        });
+    });
 
-            const remoteJid = m.key.remoteJid;
-            const waNumber = remoteJid.replace('@s.whatsapp.net', '');
-            const text = m.message.conversation || m.message.extendedTextMessage?.text;
+    client.on('ready', async () => {
+        console.log(`[Ready] ${device.name} is connected!`);
+        delete qrCache[device.id];
+        await supabase.from('system_status').upsert({ 
+            id: device.id, status: 'connected', qr_code: null, updated_at: new Date() 
+        });
+    });
 
-            if (!text) continue;
+    client.on('authenticated', () => {
+        console.log(`[Auth] ${device.name} authenticated.`);
+    });
 
-            console.log(`[Inbound] ${device.name}: ${text}`);
+    client.on('auth_failure', msg => {
+        console.error(`[Auth Fail] ${device.name}:`, msg);
+    });
 
-            // Insert to DB
-            await supabase.from('messages').insert({ 
-                conversation_id: waNumber, message: text, direction: 'inbound', status: 'read' 
+    client.on('disconnected', async (reason) => {
+        console.log(`[Disconnect] ${device.name} was logged out`, reason);
+        delete clients[device.id];
+        await supabase.from('system_status').upsert({ 
+            id: device.id, status: 'disconnected', updated_at: new Date() 
+        });
+        // Auto Restart after 5s
+        setTimeout(() => startDevice(device), 5000);
+    });
+
+    client.on('message', async (msg) => {
+        const chat = await msg.getChat();
+        const contact = await msg.getContact();
+        const waNumber = contact.number;
+        const text = msg.body;
+
+        if (msg.fromMe || chat.isGroup) return;
+
+        console.log(`[Inbound] ${device.name}: ${text}`);
+
+        // Save Message
+        await supabase.from('messages').insert({ 
+            conversation_id: waNumber, message: text, direction: 'inbound', status: 'read' 
+        });
+
+        // Upsert Conversation
+        const { data: convo } = await supabase.from('conversations').select('*').eq('wa_number', waNumber).single();
+        if (!convo) {
+            await supabase.from('conversations').insert({ 
+                wa_number: waNumber, device_id: device.id, name: contact.pushname || contact.name || waNumber, mode: 'bot'
             });
+        } else {
+            await supabase.from('conversations').update({ last_active: new Date() }).eq('wa_number', waNumber);
+        }
 
-            // Upsert Conversation
-            const { data: convo } = await supabase.from('conversations').select('*').eq('wa_number', waNumber).single();
-            if (!convo) {
-                await supabase.from('conversations').insert({ 
-                    wa_number: waNumber, device_id: device.id, name: m.pushName || waNumber, mode: 'bot'
+        // AI Logic
+        const currentMode = convo ? convo.mode : 'bot';
+        if (currentMode === 'bot') {
+            chat.sendStateTyping();
+            
+            // Check Admin Handover Keyword (Optional)
+            if (text.toLowerCase() === 'human' || text.toLowerCase() === 'admin') {
+                await supabase.from('conversations').update({ mode: 'agent' }).eq('wa_number', waNumber);
+                await client.sendMessage(msg.from, "Menghubungkan ke Admin... Mohon tunggu.");
+                return;
+            }
+
+            const reply = await generateAIReply(text, device.id);
+
+            if (reply) {
+                await client.sendMessage(msg.from, reply);
+                await supabase.from('messages').insert({ 
+                    conversation_id: waNumber, message: reply, direction: 'outbound', status: 'sent' 
                 });
             } else {
-                await supabase.from('conversations').update({ last_active: new Date() }).eq('wa_number', waNumber);
-            }
-
-            // AI or Handover
-            const currentMode = convo ? convo.mode : 'bot';
-            if (currentMode === 'bot') {
-                await sock.sendPresenceUpdate('composing', remoteJid);
-                const reply = await generateAIReply(text, device.id);
-
-                if (reply) {
-                    await sock.sendMessage(remoteJid, { text: reply });
-                    await supabase.from('messages').insert({ 
-                        conversation_id: waNumber, message: reply, direction: 'outbound', status: 'sent' 
-                    });
-                } else {
-                    await handleHandover(sock, remoteJid, device.id, device.admin_number);
+                // Handover
+                await client.sendMessage(msg.from, "Maaf saya kurang mengerti. Saya sambungkan ke Admin ya. 😊");
+                await supabase.from('conversations').update({ mode: 'agent' }).eq('wa_number', waNumber);
+                
+                if (device.admin_number) {
+                    const adminJid = device.admin_number.includes('@') ? device.admin_number : `${device.admin_number}@c.us`;
+                    client.sendMessage(adminJid, `⚠️ *HANDOVER NEEDED*\nUser: ${waNumber}\nMsg: ${text}`);
                 }
-                await sock.sendPresenceUpdate('available', remoteJid);
             }
+            chat.clearState();
         }
     });
+
+    try {
+        client.initialize();
+    } catch (e) {
+        console.error("Init Error:", e);
+    }
 }
 
 /**
- * 4. Outbound Listener
+ * 4. Outbound Listener (Dashboard -> WA)
  */
 async function listenForDashboardMessages() {
     console.log("[System] Listening for Dashboard messages...");
@@ -301,15 +257,19 @@ async function listenForDashboardMessages() {
 
                 const { data: convo } = await supabase.from('conversations').select('device_id').eq('wa_number', msg.conversation_id).single();
 
-                if (!convo || !convo.device_id || !sessions[convo.device_id]) {
+                if (!convo || !convo.device_id || !clients[convo.device_id]) {
+                    console.warn("Client not found for outgoing message");
                     await supabase.from('messages').update({ status: 'failed' }).eq('id', msg.id);
                     return;
                 }
 
                 try {
-                    await sessions[convo.device_id].sendMessage(`${msg.conversation_id}@s.whatsapp.net`, { text: msg.message });
+                    const client = clients[convo.device_id];
+                    const chatId = `${msg.conversation_id}@c.us`; // WWJS uses @c.us for contacts
+                    await client.sendMessage(chatId, msg.message);
                     await supabase.from('messages').update({ status: 'sent' }).eq('id', msg.id);
                 } catch (e) {
+                    console.error("Send Error:", e);
                     await supabase.from('messages').update({ status: 'failed' }).eq('id', msg.id);
                 }
             }
@@ -318,21 +278,25 @@ async function listenForDashboardMessages() {
 }
 
 /**
- * 5. EXPRESS API ENDPOINTS (ENHANCED)
+ * 5. API Endpoints
  */
-
 // A. Get QR Code
 app.get('/scan/:deviceId', async (req, res) => {
     const { deviceId } = req.params;
     const { data: device } = await supabase.from('devices').select('*').eq('id', deviceId).single();
     if (!device) return res.status(404).json({ error: "Device not found" });
 
-    if (!sessions[deviceId]) {
-        startDevice(device, false); // Default to QR
-        await new Promise(r => setTimeout(r, 2000));
+    // Initialize if not running
+    if (!clients[deviceId]) {
+        startDevice(device);
+        // Wait briefly for init
+        await new Promise(r => setTimeout(r, 3000));
     }
 
-    if (sessions[deviceId]?.authState?.creds?.registered) {
+    const client = clients[deviceId];
+    
+    // Check Status
+    if (client.info && client.info.wid) {
          return res.json({ status: 'connected', message: 'Device is connected!' });
     }
 
@@ -341,75 +305,36 @@ app.get('/scan/:deviceId', async (req, res) => {
         return res.json({ status: 'qr_ready', qr_string: qrCache[deviceId], qr_image: qrImage });
     } 
     
-    return res.json({ status: 'initializing', message: 'Please wait...' });
+    return res.json({ status: 'initializing', message: 'Initializing browser...' });
 });
 
-// B. Request Pairing Code (NEW - STABLE METHOD)
+// B. Pairing Code (Not fully supported in basic WWJS, reverting to QR focus or generic message)
 app.get('/pair-code/:deviceId', async (req, res) => {
-    const { deviceId } = req.params;
-    const { data: device } = await supabase.from('devices').select('*').eq('id', deviceId).single();
-    if (!device) return res.status(404).json({ error: "Device not found" });
-
-    // 1. If connected, return success
-    if (sessions[deviceId]?.authState?.creds?.registered) {
-        return res.json({ status: 'connected', message: 'Already connected' });
-    }
-
-    // 2. If code exists in cache, return it
-    if (pairingCodeCache[deviceId]) {
-        return res.json({ status: 'code_ready', code: pairingCodeCache[deviceId] });
-    }
-
-    // 3. Force restart with Pairing Code mode
-    if (sessions[deviceId]) {
-        sessions[deviceId].end(undefined); // Kill existing QR session
-        delete sessions[deviceId];
-    }
-
-    startDevice(device, true); // TRUE = Use Pairing Code
-    
-    // Wait for code generation
-    let attempts = 0;
-    const checkCode = setInterval(() => {
-        attempts++;
-        if (pairingCodeCache[deviceId]) {
-            clearInterval(checkCode);
-            return res.json({ status: 'code_ready', code: pairingCodeCache[deviceId] });
-        }
-        if (attempts > 15) { // Wait 15s
-            clearInterval(checkCode);
-            return res.json({ status: 'timeout', message: 'Generating code took too long. Try again.' });
-        }
-    }, 1000);
-});
-
-// C. Reset Session (NUCLEAR OPTION)
-app.post('/reset/:deviceId', async (req, res) => {
-    const { deviceId } = req.params;
-    const folder = `auth_info_${deviceId}`;
-
-    if (sessions[deviceId]) {
-        sessions[deviceId].end(undefined);
-        delete sessions[deviceId];
-    }
-
-    try {
-        if (fs.existsSync(folder)) {
-            fs.rmSync(folder, { recursive: true, force: true });
-            console.log(`[Reset] Deleted session for ${deviceId}`);
-        }
-        return res.json({ success: true, message: "Session deleted. Please rescan." });
-    } catch (e) {
-        return res.status(500).json({ error: e.message });
-    }
+    return res.json({ 
+        status: 'error', 
+        message: 'Pairing Code is experimental in this library. Please use QR Scan.' 
+    });
 });
 
 app.get('/sessions', (req, res) => {
-    res.json({ devices: Object.keys(sessions) });
+    res.json({ devices: Object.keys(clients) });
+});
+
+app.post('/reset/:deviceId', async (req, res) => {
+    const { deviceId } = req.params;
+    if (clients[deviceId]) {
+        await clients[deviceId].destroy();
+        delete clients[deviceId];
+    }
+    const path = `./auth_sessions/session-${deviceId}`;
+    if (fs.existsSync(path)) {
+        fs.rmSync(path, { recursive: true, force: true });
+    }
+    res.json({ success: true });
 });
 
 /**
- * 6. Main Entry
+ * 6. Main
  */
 async function main() {
     app.listen(PORT, () => {
@@ -417,10 +342,10 @@ async function main() {
     });
     listenForDashboardMessages();
 
-    // Auto-start existing devices
+    // Auto-start
     const { data: devices } = await supabase.from('devices').select('*');
     if (devices) {
-        devices.forEach(d => startDevice(d, false)); // Default to QR on boot
+        devices.forEach(d => startDevice(d));
     }
 
     supabase.channel('new-devices')

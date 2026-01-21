@@ -8,7 +8,7 @@ export const BackendLogicViewer: React.FC = () => {
       <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
         <h3 className="font-semibold text-gray-700 flex items-center gap-2">
           <Server size={18} className="text-purple-600" />
-          Linux Worker Files (Generated)
+          Linux Worker Files (Updated for whatsapp-web.js)
         </h3>
       </div>
       
@@ -16,72 +16,51 @@ export const BackendLogicViewer: React.FC = () => {
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
           <h4 className="font-bold text-green-800 text-sm mb-2 flex items-center gap-2">
             <Check size={16} /> 
-            Files Generated Successfully
+            Code Switched to Puppeteer Engine
           </h4>
           <p className="text-xs text-green-700 leading-relaxed">
-            I have generated the actual code files for your Linux server. 
-            Please check the project folder structure:
+             We have switched from Baileys to <strong>whatsapp-web.js</strong> for better stability.
+             <br/>
+             Since you are on an STB/Linux, you <strong>MUST install Chromium</strong> manually.
           </p>
-          <ul className="list-disc list-inside mt-2 text-xs text-green-800 font-mono">
-            <li>/server/index.js (The Main Worker Logic)</li>
-            <li>/server/package.json (Dependencies)</li>
-          </ul>
         </div>
 
         {/* Troubleshooting Section */}
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
-             <h4 className="font-bold text-yellow-800 text-sm mb-2 flex items-center gap-2">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+             <h4 className="font-bold text-red-800 text-sm mb-2 flex items-center gap-2">
                 <AlertTriangle size={16} />
-                Common Error: "MODULE_NOT_FOUND" or "cors" missing
+                CRITICAL STB REQUIREMENT
              </h4>
-             <p className="text-xs text-yellow-800 mb-2">
-                 If you see errors about missing 'cors' or 'baileys' in your STB logs, do this:
+             <p className="text-xs text-red-800 mb-2">
+                 Puppeteer needs a browser. On ARM devices (STB), downloading Chrome automatically fails.
+                 Run this command on your terminal:
              </p>
-             <div className="bg-black text-gray-300 p-3 rounded font-mono text-[10px] space-y-1">
-                 <p className="text-white"># 1. Update the code files on server first</p>
-                 <p>(Re-upload index.js and package.json)</p>
-                 <br/>
-                 <p className="text-white"># 2. Clean install</p>
-                 <p>cd /root/wa-worker</p>
-                 <p>rm -rf node_modules package-lock.json</p>
-                 <p>npm install</p>
-                 <br/>
-                 <p className="text-white"># 3. Restart</p>
-                 <p>pm2 restart wa-worker</p>
+             <div className="bg-black text-white p-3 rounded font-mono text-[10px] space-y-2">
+                 <p>sudo apt-get update</p>
+                 <p>sudo apt-get install chromium-browser -y</p>
+                 <p className="text-gray-500"># Or simply 'chromium' on some distros</p>
              </div>
         </div>
 
         <div className="space-y-4">
-          <h4 className="font-bold text-gray-800 text-sm">Deployment Instructions (Linux/VPS)</h4>
+          <h4 className="font-bold text-gray-800 text-sm">Update Instructions</h4>
           
           <div className="bg-gray-900 text-gray-200 p-4 rounded-lg font-mono text-xs shadow-inner">
-            <p className="text-gray-500 mb-2"># 1. On your server, create a folder</p>
-            <p className="mb-2">mkdir wa-worker && cd wa-worker</p>
+            <p className="text-gray-500 mb-2"># 1. Update your code files first (Upload new index.js & package.json)</p>
             
-            <p className="text-gray-500 mb-2 mt-4"># 2. Upload 'server/index.js' and 'server/package.json' here</p>
-            <p className="text-gray-500 mb-2"># (You do NOT need to upload the frontend files)</p>
+            <p className="text-gray-500 mb-2 mt-4"># 2. Clean old node_modules</p>
+            <p className="mb-2">cd /root/wa-worker</p>
+            <p className="mb-2">rm -rf node_modules package-lock.json</p>
             
             <p className="text-gray-500 mb-2 mt-4"># 3. Install dependencies</p>
             <p className="mb-2">npm install</p>
 
-            <p className="text-gray-500 mb-2 mt-4"># 4. Create .env file</p>
-            <p className="mb-1">echo "SUPABASE_URL=..." {'>'}{'>'} .env</p>
-            <p className="mb-1">echo "SUPABASE_SERVICE_KEY=..." {'>'}{'>'} .env</p>
-            <p className="mb-2">echo "GEMINI_API_KEY=..." {'>'}{'>'} .env</p>
+            <p className="text-gray-500 mb-2 mt-4"># 4. Install Chromium (System Browser)</p>
+            <p className="mb-2">apt install chromium</p>
 
-            <p className="text-gray-500 mb-2 mt-4"># 5. Start with PM2 (Background Process)</p>
-            <p className="mb-2">npm install -g pm2</p>
-            <p className="mb-2">pm2 start index.js --name wa-worker</p>
-            
-            <p className="text-gray-500 mb-2 mt-4"># 6. Enable Auto-Restart on Reboot (Power Failure Safe)</p>
-            <p className="mb-2">pm2 startup</p>
-            <p className="text-gray-500 mb-2"># Run the command output by the line above, then:</p>
-            <p className="mb-2">pm2 save</p>
-
-            <p className="text-gray-500 mb-2 mt-4"># Useful Commands</p>
-            <p className="mb-1">pm2 logs wa-worker  # View logs/QR Code</p>
-            <p className="mb-1">pm2 restart wa-worker</p>
-            <p className="mb-1">pm2 stop wa-worker</p>
+            <p className="text-gray-500 mb-2 mt-4"># 5. Restart Worker</p>
+            <p className="mb-2">pm2 restart wa-worker</p>
+            <p className="mb-1">pm2 logs wa-worker</p>
           </div>
         </div>
       </div>
