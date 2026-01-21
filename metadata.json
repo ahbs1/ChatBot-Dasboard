@@ -1,0 +1,5 @@
+{
+  "name": "WhatsAgent AI Dashboard",
+  "description": "A professional dashboard for monitoring WhatsApp conversations, managing RAG knowledge bases, and handling human-bot handovers with Gemini AI assistance.",
+  "requestFramePermissions": []
+}

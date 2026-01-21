@@ -1,0 +1,100 @@
+export enum Direction {
+  INBOUND = 'inbound',   // From User
+  OUTBOUND = 'outbound'  // From Bot or Agent
+}
+
+export enum SenderType {
+  USER = 'user',
+  BOT = 'bot',
+  AGENT = 'agent'
+}
+
+export interface Device {
+  id: string;          // UUID or Unique String
+  name: string;        // Friendly Name (e.g., "Toko Bata", "Jasa Konstruksi")
+  phoneNumber: string; // The WA Number
+  color: string;       // UI Badge Color
+  status: 'connected' | 'disconnected' | 'qr_ready';
+  alertEmail?: string; // <--- NEW: Email for disconnection alerts
+}
+
+export interface Message {
+  id: string;
+  text: string;
+  sender: SenderType; 
+  direction: Direction;
+  timestamp: Date;
+  status: 'sent' | 'delivered' | 'read' | 'failed';
+}
+
+export interface Contact {
+  id: string; // wa_number
+  deviceId: string;
+  name: string;
+  phoneNumber: string;
+  avatar: string;
+  lastMessage: string;
+  lastMessageTime: Date;
+  unreadCount: number;
+  isBotActive: boolean;
+  tags: string[];
+}
+
+export interface RAGDocument {
+  id: string;
+  deviceId: string;
+  title: string;
+  content: string;
+  similarity: number;
+  metadata?: Record<string, any>;
+}
+
+export enum AppView {
+  DASHBOARD = 'dashboard',
+  KNOWLEDGE = 'knowledge',
+  DEVICES = 'devices',
+  SETTINGS = 'settings'
+}
+
+// --- Database Schema Types ---
+
+export interface DBDevice {
+  id: string;
+  name: string;
+  phone_number: string;
+  color: string;
+  alert_email?: string; // <--- NEW DB COLUMN
+  created_at: string;
+}
+
+export interface DBConversation {
+  wa_number: string;
+  device_id: string; 
+  name: string;
+  mode: 'bot' | 'agent';
+  last_active: string;
+}
+
+export interface DBMessage {
+  id: number;
+  conversation_id: string;
+  message: string;
+  direction: 'inbound' | 'outbound';
+  status: string;
+  created_at: string;
+}
+
+export interface DBKnowledgeBase {
+  id: number;
+  device_id: string;
+  content: string;
+  metadata: Record<string, any>;
+  embedding: number[];
+}
+
+export interface DBSystemStatus {
+  id: string; 
+  status: 'connecting' | 'connected' | 'qr_ready' | 'disconnected';
+  qr_code?: string;
+  updated_at: string;
+}
