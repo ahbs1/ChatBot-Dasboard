@@ -1,7 +1,7 @@
 {
   "name": "whatsagent-worker",
   "version": "1.0.0",
-  "description": "WhatsApp Worker for WhatsAgent",
+  "description": "WhatsApp Worker for WhatsAgent with Express API",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -12,6 +12,8 @@
     "@supabase/supabase-js": "^2.39.0",
     "@google/genai": "^0.2.0",
     "qrcode-terminal": "^0.12.0",
+    "qrcode": "^1.5.3",
+    "express": "^4.18.2",
     "dotenv": "^16.3.1"
   }
 }

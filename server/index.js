@@ -1,5 +1,5 @@
 /**
- * WHATSAGENT WORKER (Production Ready)
+ * WHATSAGENT WORKER + API (Production Ready)
  * 
  * Setup on Linux Server:
  * 1. Upload this file (index.js) and package.json to a folder.
@@ -9,18 +9,48 @@
  */
 
 import 'dotenv/config';
-// FIX: Changed import style for makeWASocket to default import
-import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import { createRequire } from 'module';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from '@google/genai';
-import qrcode from 'qrcode-terminal';
-import fs from 'fs';
+import qrcodeTerminal from 'qrcode-terminal';
+import express from 'express';
+import QRCode from 'qrcode'; // For generating Base64 QR for API
+
+// --- ROBUST BAILEYS IMPORT & POLYFILLS ---
+const require = createRequire(import.meta.url);
+
+// [FIX] Polyfill global 'crypto' for Node.js environments (STB/Node 18)
+const nodeCrypto = require('crypto');
+if (!global.crypto) {
+    // Prefer webcrypto (Node 15+) as Baileys expects standard Web API behavior
+    // Fallback to standard nodeCrypto if webcrypto is missing
+    global.crypto = nodeCrypto.webcrypto || nodeCrypto;
+}
+
+const BaileysRaw = require('@whiskeysockets/baileys');
+
+// 1. Extract makeWASocket
+let makeWASocket = BaileysRaw.default || BaileysRaw;
+if (makeWASocket && makeWASocket.default) {
+    makeWASocket = makeWASocket.default;
+}
+
+// 2. Extract Named Exports
+let useMultiFileAuthState = BaileysRaw.useMultiFileAuthState || (BaileysRaw.default && BaileysRaw.default.useMultiFileAuthState);
+let DisconnectReason = BaileysRaw.DisconnectReason || (BaileysRaw.default && BaileysRaw.default.DisconnectReason);
+let fetchLatestBaileysVersion = BaileysRaw.fetchLatestBaileysVersion || (BaileysRaw.default && BaileysRaw.default.fetchLatestBaileysVersion);
+
+if (typeof makeWASocket !== 'function' || typeof useMultiFileAuthState !== 'function') {
+    console.error("❌ CRITICAL ERROR: Failed to load Baileys functions. Check node_modules.");
+    process.exit(1);
+}
 
 // --- CONFIG ---
 const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY; // Use Service Key for Backend!
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const CONFIDENCE_THRESHOLD = 0.65;
+const PORT = process.env.PORT || 3000;
 
 if (!SUPABASE_URL || !SUPABASE_KEY || !GEMINI_API_KEY) {
     console.error("❌ MISSING ENV VARS. Check .env file.");
@@ -29,11 +59,13 @@ if (!SUPABASE_URL || !SUPABASE_KEY || !GEMINI_API_KEY) {
 
 // Clients
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-// Initialize GoogleGenAI with specific API key property
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+const app = express();
+app.use(express.json());
 
-// Session Store (InMemory for active sockets)
+// Session Store (InMemory for active sockets & QR Cache)
 const sessions = {}; 
+const qrCache = {}; // Cache QR codes for API response
 
 /**
  * 1. AI Logic: RAG + Gemini Generation
@@ -42,14 +74,12 @@ async function generateAIReply(userText, deviceId) {
     try {
         console.log(`[AI] Processing: "${userText}" for ${deviceId}`);
         
-        // A. Embed Query
         const embedResult = await ai.models.embedContent({
             model: "text-embedding-004",
             content: userText
         });
         const embedding = embedResult.embedding.values;
 
-        // B. Search Supabase (RAG)
         const { data: docs, error } = await supabase.rpc('match_documents', {
             query_embedding: embedding,
             match_threshold: CONFIDENCE_THRESHOLD, 
@@ -59,16 +89,12 @@ async function generateAIReply(userText, deviceId) {
 
         if (error) console.error("RAG Error:", error);
         
-        // C. If no context found, signal Handover
         if (!docs || docs.length === 0) {
             console.log("[AI] No context found. Triggering handover.");
             return null;
         }
 
         const contextText = docs.map(d => d.content).join("\n---\n");
-        console.log(`[AI] Found ${docs.length} relevant docs.`);
-
-        // D. Generate Answer
         const prompt = `
         You are a helpful assistant for a business.
         Use ONLY the context below to answer the user.
@@ -82,41 +108,32 @@ async function generateAIReply(userText, deviceId) {
         `;
 
         const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview", // UPDATED: World-class model for text tasks
+            model: "gemini-3-flash-preview", 
             contents: prompt
         });
 
-        // CRITICAL FIX: use .text property, not .text() method
         const reply = response.text ? response.text.trim() : "";
-        
         if (reply.includes("NO_ANSWER") || reply.length < 5) return null;
-
         return reply;
 
     } catch (e) {
         console.error("[AI] Error:", e);
-        return null; // Fallback to handover on error
+        return null;
     }
 }
 
 /**
- * 2. Handover Logic: Notify Admin
+ * 2. Handover Logic
  */
 async function handleHandover(sock, remoteJid, deviceId, adminNumber) {
     console.log(`[Handover] Device ${deviceId} -> User ${remoteJid}`);
+    await sock.sendMessage(remoteJid, { text: "Mohon tunggu sebentar, staf kami akan segera membantu Anda. 😊" });
 
-    // Notify User
-    await sock.sendMessage(remoteJid, { 
-        text: "Mohon tunggu sebentar, staf kami akan segera membantu Anda. 😊" 
-    });
-
-    // Switch DB Mode to 'agent'
     const waNumber = remoteJid.replace('@s.whatsapp.net', '');
     await supabase.from('conversations')
         .update({ mode: 'agent', last_active: new Date() })
         .eq('wa_number', waNumber);
 
-    // Alert Admin
     if (adminNumber) {
         const adminJid = adminNumber.includes('@') ? adminNumber : `${adminNumber}@s.whatsapp.net`;
         await sock.sendMessage(adminJid, { 
@@ -126,45 +143,47 @@ async function handleHandover(sock, remoteJid, deviceId, adminNumber) {
 }
 
 /**
- * 3. Start a Single Device Connection
+ * 3. Start a Single Device Connection (Logic Utama)
  */
 async function startDevice(device) {
+    if (sessions[device.id]) {
+        console.log(`[Init] Device ${device.id} already running.`);
+        return;
+    }
+
     console.log(`[Init] Starting Device: ${device.name} (${device.id})`);
 
+    // --- SESSION PERSISTENCE ---
+    // Auth state disimpan di folder 'auth_info_{id}'.
+    // Saat restart, Baileys membaca folder ini sehingga tidak perlu scan ulang.
     const { state, saveCreds } = await useMultiFileAuthState(`auth_info_${device.id}`);
     const { version } = await fetchLatestBaileysVersion();
 
-    // FIX: Removed .default property access
     const sock = makeWASocket({
         version,
         auth: state,
-        printQRInTerminal: true, // Useful for CLI debugging
+        printQRInTerminal: true,
         browser: ["WhatsAgent", "Linux Server", "1.0"],
         syncFullHistory: false
     });
 
     sessions[device.id] = sock;
 
-    // --- HEARTBEAT LOOP (Per Device) ---
-    // Updates Supabase every 60s to show "Connected" on Dashboard
+    // Heartbeat
     const heartbeatParams = setInterval(async () => {
         try {
-            // Only update if connection is effectively open
-            await supabase.from('system_status').upsert({ 
-                id: device.id, 
-                updated_at: new Date() 
-            });
+            await supabase.from('system_status').upsert({ id: device.id, updated_at: new Date() });
         } catch(e) { /* Silent fail */ }
     }, 60000);
-
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
             console.log(`[QR] Device ${device.id} waiting for scan...`);
-            // Update Supabase so Dashboard shows the QR
-            // qrcode.generate(qr, { small: true }); // Optional: Show in terminal
+            qrCache[device.id] = qr; // Simpan QR string untuk API
+
+            // Update Supabase
             await supabase.from('system_status').upsert({ 
                 id: device.id, 
                 status: 'qr_ready', 
@@ -175,6 +194,9 @@ async function startDevice(device) {
 
         if (connection === 'close') {
             clearInterval(heartbeatParams);
+            delete sessions[device.id];
+            delete qrCache[device.id];
+
             const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
             console.log(`[Close] Device ${device.id} disconnected. Reconnecting: ${shouldReconnect}`);
             
@@ -185,10 +207,12 @@ async function startDevice(device) {
             });
 
             if (shouldReconnect) {
-                startDevice(device);
+                setTimeout(() => startDevice(device), 3000);
             }
         } else if (connection === 'open') {
             console.log(`[Open] Device ${device.id} is READY!`);
+            delete qrCache[device.id]; // Hapus QR jika sudah connect
+
             await supabase.from('system_status').upsert({ 
                 id: device.id, 
                 status: 'connected', 
@@ -200,7 +224,6 @@ async function startDevice(device) {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // --- INBOUND MESSAGE HANDLING ---
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
 
@@ -215,7 +238,6 @@ async function startDevice(device) {
 
             console.log(`[Inbound] ${device.name}: ${text}`);
 
-            // 1. Save Message to DB
             await supabase.from('messages').insert({ 
                 conversation_id: waNumber, 
                 message: text, 
@@ -223,14 +245,9 @@ async function startDevice(device) {
                 status: 'read' 
             });
 
-            // 2. Update/Create Conversation
-            const { data: convo } = await supabase.from('conversations')
-                .select('*')
-                .eq('wa_number', waNumber)
-                .single();
+            const { data: convo } = await supabase.from('conversations').select('*').eq('wa_number', waNumber).single();
             
             if (!convo) {
-                // New Contact
                 await supabase.from('conversations').insert({ 
                     wa_number: waNumber, 
                     device_id: device.id, 
@@ -238,18 +255,12 @@ async function startDevice(device) {
                     mode: 'bot'
                 });
             } else {
-                // Update timestamp
-                await supabase.from('conversations')
-                    .update({ last_active: new Date() })
-                    .eq('wa_number', waNumber);
+                await supabase.from('conversations').update({ last_active: new Date() }).eq('wa_number', waNumber);
             }
 
-            // 3. Bot Logic (Only if mode is 'bot')
             const currentMode = convo ? convo.mode : 'bot';
             if (currentMode === 'bot') {
-                // Initial "Typing..." state
                 await sock.sendPresenceUpdate('composing', remoteJid);
-
                 const reply = await generateAIReply(text, device.id);
 
                 if (reply) {
@@ -261,10 +272,8 @@ async function startDevice(device) {
                         status: 'sent' 
                     });
                 } else {
-                    // Handover
                     await handleHandover(sock, remoteJid, device.id, device.admin_number);
                 }
-                
                 await sock.sendPresenceUpdate('available', remoteJid);
             }
         }
@@ -276,7 +285,6 @@ async function startDevice(device) {
  */
 async function listenForDashboardMessages() {
     console.log("[System] Listening for Dashboard messages...");
-    
     supabase
         .channel('outbound-messages')
         .on(
@@ -286,25 +294,16 @@ async function listenForDashboardMessages() {
                 const msg = payload.new;
                 if (msg.direction !== 'outbound') return;
 
-                console.log(`[Outbound Request] To: ${msg.conversation_id}, Msg: ${msg.message}`);
-
-                // Find which device owns this conversation
-                const { data: convo } = await supabase.from('conversations')
-                    .select('device_id')
-                    .eq('wa_number', msg.conversation_id)
-                    .single();
+                const { data: convo } = await supabase.from('conversations').select('device_id').eq('wa_number', msg.conversation_id).single();
 
                 if (!convo || !convo.device_id || !sessions[convo.device_id]) {
-                    console.error("[Error] Device not found or not connected for this conversation.");
+                    console.error("[Error] Device not connected.");
                     await supabase.from('messages').update({ status: 'failed' }).eq('id', msg.id);
                     return;
                 }
 
-                const sock = sessions[convo.device_id];
-                const jid = `${msg.conversation_id}@s.whatsapp.net`;
-
                 try {
-                    await sock.sendMessage(jid, { text: msg.message });
+                    await sessions[convo.device_id].sendMessage(`${msg.conversation_id}@s.whatsapp.net`, { text: msg.message });
                     await supabase.from('messages').update({ status: 'sent' }).eq('id', msg.id);
                 } catch (e) {
                     console.error("[Outbound Error]", e);
@@ -316,27 +315,74 @@ async function listenForDashboardMessages() {
 }
 
 /**
- * 5. Main Entry Point
+ * 5. EXPRESS API ENDPOINTS
+ */
+
+// Endpoint: Check Status / Get QR
+app.get('/scan/:deviceId', async (req, res) => {
+    const { deviceId } = req.params;
+    
+    // 1. Cek apakah device ada di DB
+    const { data: device, error } = await supabase.from('devices').select('*').eq('id', deviceId).single();
+    
+    if (error || !device) {
+        return res.status(404).json({ error: "Device not found in database" });
+    }
+
+    // 2. Jika sesi belum jalan, jalankan sekarang
+    if (!sessions[deviceId]) {
+        startDevice(device);
+        // Beri waktu sebentar untuk inisialisasi
+        await new Promise(r => setTimeout(r, 2000));
+    }
+
+    // 3. Cek status koneksi
+    if (qrCache[deviceId]) {
+        // Generate QR Code Image (Base64) agar bisa ditampilkan di browser
+        try {
+            const qrImage = await QRCode.toDataURL(qrCache[deviceId]);
+            return res.json({ 
+                status: 'qr_ready', 
+                message: 'Scan this QR Code',
+                qr_string: qrCache[deviceId],
+                qr_image: qrImage 
+            });
+        } catch (e) {
+            return res.status(500).json({ error: "Failed to generate QR image" });
+        }
+    } else if (sessions[deviceId]) {
+        return res.json({ status: 'connected', message: 'Device is connected and ready.' });
+    } else {
+        return res.json({ status: 'initializing', message: 'Please wait, starting session...' });
+    }
+});
+
+// Endpoint: List Active Sessions
+app.get('/sessions', (req, res) => {
+    const activeSessions = Object.keys(sessions);
+    res.json({ active_count: activeSessions.length, devices: activeSessions });
+});
+
+/**
+ * 6. Main Entry Point
  */
 async function main() {
-    // A. Start Outbound Listener
+    // A. Start API Server
+    app.listen(PORT, () => {
+        console.log(`[API] Server running on port ${PORT}`);
+    });
+
+    // B. Start Outbound Listener
     listenForDashboardMessages();
 
-    // B. Fetch Devices and Start Them
+    // C. Fetch Devices and Start Them
     const { data: devices, error } = await supabase.from('devices').select('*');
-    
-    if (error) {
-        console.error("Failed to fetch devices from DB:", error);
-        return;
-    }
-
-    if (devices.length === 0) {
-        console.log("No devices found in DB. Please add a device via the Dashboard first.");
-    }
-
-    // Start all devices
-    for (const device of devices) {
-        startDevice(device);
+    if (!error && devices.length > 0) {
+        for (const device of devices) {
+            startDevice(device);
+        }
+    } else {
+        console.log("No devices found in DB. Add one via Dashboard or POST /scan/:newId");
     }
     
     // Listen for NEW devices added via Dashboard
