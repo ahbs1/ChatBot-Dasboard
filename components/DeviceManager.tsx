@@ -5,11 +5,13 @@ import { Device } from '../types';
 import { Button } from './Button';
 
 interface DeviceManagerProps {
-  devices?: Device[]; 
+  devices: Device[];
+  onAddDevice: (device: Device) => void;
+  onDeleteDevice?: (deviceId: string) => void;
 }
 
-export const DeviceManager: React.FC<DeviceManagerProps> = () => {
-  const [localDevices, setLocalDevices] = useState<Device[]>([]);
+export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevice, onDeleteDevice }) => {
+  // NOTE: We use 'devices' from props now, so the list is synced with App.tsx
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [deviceStatus, setDeviceStatus] = useState<string>('disconnected');
@@ -20,33 +22,22 @@ export const DeviceManager: React.FC<DeviceManagerProps> = () => {
   // Form State
   const [newDeviceName, setNewDeviceName] = useState('');
   const [newDevicePhone, setNewDevicePhone] = useState('');
-  const [newDeviceEmail, setNewDeviceEmail] = useState(''); // NEW
+  const [newDeviceEmail, setNewDeviceEmail] = useState('');
+
+  // Set initial selection
+  useEffect(() => {
+    if (devices.length > 0 && !selectedDeviceId) {
+      setSelectedDeviceId(devices[0].id);
+    }
+  }, [devices, selectedDeviceId]);
 
   useEffect(() => {
     if ('Notification' in window && Notification.permission !== 'granted') {
       Notification.requestPermission();
     }
-    fetchDevices();
   }, []);
 
-  const fetchDevices = async () => {
-    const { data } = await supabase.from('devices').select('*');
-    if (data) {
-       const mapped: Device[] = data.map((d: any) => ({
-         id: d.id,
-         name: d.name,
-         phoneNumber: d.phone_number,
-         color: d.color,
-         status: 'disconnected',
-         alertEmail: d.alert_email
-       }));
-       setLocalDevices(mapped);
-       if (mapped.length > 0 && !selectedDeviceId) {
-         setSelectedDeviceId(mapped[0].id);
-       }
-    }
-  };
-
+  // --- Realtime Status Monitoring for Selected Device ---
   useEffect(() => {
     if (!selectedDeviceId) return;
 
@@ -94,8 +85,9 @@ export const DeviceManager: React.FC<DeviceManagerProps> = () => {
 
   const triggerDisconnectAlert = () => {
     if (Notification.permission === 'granted') {
+      const devName = devices.find(d => d.id === selectedDeviceId)?.name || 'Device';
       new Notification('⚠️ WhatsApp Disconnected', {
-        body: `Device ${localDevices.find(d => d.id === selectedDeviceId)?.name} lost connection. Email alert sent.`,
+        body: `Device ${devName} lost connection.`,
         icon: '/favicon.ico'
       });
     }
@@ -103,28 +95,39 @@ export const DeviceManager: React.FC<DeviceManagerProps> = () => {
     audio.play().catch(e => console.log("Audio autoplay blocked", e));
   };
 
-  const handleAddDevice = async () => {
-    if (!newDeviceName) return;
-    const id = `dev_${Date.now()}`;
-    const color = 'bg-blue-500';
-    
-    const { error } = await supabase.from('devices').insert({
-      id,
-      name: newDeviceName,
-      phone_number: newDevicePhone,
-      alert_email: newDeviceEmail, // NEW
-      color
-    });
-
-    if (!error) {
-      setNewDeviceName('');
-      setNewDevicePhone('');
-      setNewDeviceEmail('');
-      fetchDevices();
-    }
+  const getRandomColor = () => {
+    const colors = ['bg-blue-500', 'bg-orange-500', 'bg-green-500', 'bg-purple-500', 'bg-pink-500', 'bg-indigo-500', 'bg-teal-500'];
+    return colors[Math.floor(Math.random() * colors.length)];
   };
 
-  const selectedDevice = localDevices.find(d => d.id === selectedDeviceId);
+  const handleAddSubmit = () => {
+    if (!newDeviceName.trim()) return;
+
+    const id = `dev_${Date.now()}`;
+    const color = getRandomColor();
+    
+    const newDevice: Device = {
+      id,
+      name: newDeviceName,
+      phoneNumber: newDevicePhone || 'No Number',
+      color,
+      status: 'disconnected',
+      alertEmail: newDeviceEmail
+    };
+
+    // Pass to parent to update Global State + DB
+    onAddDevice(newDevice);
+
+    // Reset Form
+    setNewDeviceName('');
+    setNewDevicePhone('');
+    setNewDeviceEmail('');
+    
+    // Auto select new device
+    setSelectedDeviceId(id);
+  };
+
+  const selectedDevice = devices.find(d => d.id === selectedDeviceId);
 
   return (
     <div className="flex-1 bg-gray-50 flex flex-col h-full p-8 overflow-y-auto">
@@ -143,7 +146,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = () => {
           <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
             <h3 className="font-semibold text-gray-700 mb-4">Your Businesses</h3>
             <div className="space-y-2">
-              {localDevices.map(dev => (
+              {devices.map(dev => (
                 <div 
                   key={dev.id}
                   onClick={() => setSelectedDeviceId(dev.id)}
@@ -162,27 +165,51 @@ export const DeviceManager: React.FC<DeviceManagerProps> = () => {
                       <p className="text-xs text-gray-500">{dev.phoneNumber || 'No Number'}</p>
                     </div>
                   </div>
-                  {selectedDeviceId === dev.id && <CheckCircle size={16} className="text-blue-500" />}
+                  <div className="flex items-center gap-2">
+                     {selectedDeviceId === dev.id && <CheckCircle size={16} className="text-blue-500" />}
+                     {onDeleteDevice && (
+                       <button 
+                        onClick={(e) => { e.stopPropagation(); onDeleteDevice(dev.id); }}
+                        className="text-gray-300 hover:text-red-500 p-1"
+                       >
+                         <Trash size={14} />
+                       </button>
+                     )}
+                  </div>
                 </div>
               ))}
             </div>
 
             <div className="mt-6 pt-4 border-t border-gray-100">
               <h4 className="text-xs font-bold text-gray-400 uppercase mb-2">Add New Device</h4>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <input 
-                  className="w-full text-sm p-2 border rounded bg-gray-50" 
+                  className="w-full text-sm p-2 border rounded bg-gray-50 focus:ring-2 focus:ring-blue-100 outline-none" 
                   placeholder="Device Name (e.g. Toko Bata)"
                   value={newDeviceName}
                   onChange={e => setNewDeviceName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddSubmit()}
                 />
                 <input 
-                  className="w-full text-sm p-2 border rounded bg-gray-50" 
+                  className="w-full text-sm p-2 border rounded bg-gray-50 focus:ring-2 focus:ring-blue-100 outline-none" 
+                  placeholder="Phone Number (e.g. 6281...)"
+                  value={newDevicePhone}
+                  onChange={e => setNewDevicePhone(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddSubmit()}
+                />
+                <input 
+                  className="w-full text-sm p-2 border rounded bg-gray-50 focus:ring-2 focus:ring-blue-100 outline-none" 
                   placeholder="Alert Email (Required for notifications)"
                   value={newDeviceEmail}
                   onChange={e => setNewDeviceEmail(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddSubmit()}
                 />
-                <Button onClick={handleAddDevice} className="w-full text-xs" icon={<Plus size={14}/>}>
+                <Button 
+                    onClick={handleAddSubmit} 
+                    className="w-full text-xs" 
+                    icon={<Plus size={14}/>}
+                    disabled={!newDeviceName.trim()}
+                >
                   Add Device
                 </Button>
               </div>

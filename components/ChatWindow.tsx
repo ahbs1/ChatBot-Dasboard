@@ -10,6 +10,7 @@ interface ChatWindowProps {
   messages: Message[];
   ragDocs: RAGDocument[];
   onSendMessage: (text: string, sender: SenderType, teachBot: boolean) => void;
+  onEditMessage: (messageId: string, newText: string) => void; // <--- NEW PROP
   onToggleBot: (active: boolean) => void;
 }
 
@@ -18,15 +19,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   messages, 
   ragDocs,
   onSendMessage, 
+  onEditMessage,
   onToggleBot 
 }) => {
   const [inputText, setInputText] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [teachBot, setTeachBot] = useState(false); // State for learning toggle
+  const [teachBot, setTeachBot] = useState(false); 
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Auto-scroll to bottom
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
@@ -36,7 +37,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     if (!inputText.trim()) return;
     onSendMessage(inputText, SenderType.AGENT, teachBot);
     setInputText('');
-    setTeachBot(false); // Reset toggle after send
+    setTeachBot(false); 
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -47,17 +48,15 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   };
 
   const handleGenerateDraft = async () => {
-    if (contact.isBotActive) return; // Only for human agents
+    if (contact.isBotActive) return; 
     
     setIsGenerating(true);
     const draft = await generateAgentDraft(messages, ragDocs, inputText);
     setInputText(draft);
     setIsGenerating(false);
-    // Automatically suggest teaching if the agent requested a draft (implying they might edit it)
     setTeachBot(true);
   };
 
-  // Find the last user message to show context for teaching
   const lastUserMessage = [...messages].reverse().find(m => m.direction === Direction.INBOUND);
 
   return (
@@ -104,7 +103,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       >
         <div className="absolute inset-0 bg-wa-bg opacity-90 -z-10" />
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
+          <MessageBubble 
+            key={msg.id} 
+            message={msg} 
+            onEdit={onEditMessage} // Pass the handler
+          />
         ))}
       </div>
 

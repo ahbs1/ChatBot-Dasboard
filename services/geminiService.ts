@@ -1,9 +1,22 @@
 import { GoogleGenAI } from "@google/genai";
 import { Message, SenderType, RAGDocument } from '../types';
 
-// NOTE: In a production React app, this should be in an Edge Function to hide the key.
-// For this demo/dashboard, we assume the key is available in environment variables.
-const API_KEY = process.env.API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY || ''; 
+// Helper for Env Vars
+const getEnv = (keys: string[]) => {
+  for (const key of keys) {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
+      // @ts-ignore
+      return import.meta.env[key];
+    }
+    if (typeof process !== 'undefined' && process.env && process.env[key]) {
+      return process.env[key];
+    }
+  }
+  return '';
+};
+
+const API_KEY = getEnv(['VITE_GEMINI_API_KEY', 'NEXT_PUBLIC_GEMINI_API_KEY', 'REACT_APP_GEMINI_API_KEY']);
 
 let ai: GoogleGenAI | null = null;
 
@@ -11,7 +24,7 @@ try {
   if (API_KEY) {
     ai = new GoogleGenAI({ apiKey: API_KEY });
   } else {
-    console.warn("Gemini API Key is missing. AI features will not work.");
+    console.warn("⚠️ Gemini API Key is missing. AI features will not work.");
   }
 } catch (error) {
   console.error("Failed to initialize Gemini client", error);
@@ -28,7 +41,6 @@ export const generateEmbedding = async (text: string): Promise<number[] | null> 
       model: 'text-embedding-004',
       content: text,
     });
-    // Ensure we handle the response structure correctly
     return response.embedding.values || null;
   } catch (error) {
     console.error("Error generating embedding:", error);

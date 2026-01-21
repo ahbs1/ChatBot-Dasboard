@@ -1,3 +1,4 @@
+
 export enum Direction {
   INBOUND = 'inbound',   // From User
   OUTBOUND = 'outbound'  // From Bot or Agent
@@ -18,13 +19,22 @@ export interface Device {
   alertEmail?: string; // <--- NEW: Email for disconnection alerts
 }
 
+export interface Lead {
+  id: number;
+  deviceId: string;
+  phoneNumber: string;
+  name?: string;
+  address?: string;
+  lastInteraction: Date;
+}
+
 export interface Message {
   id: string;
   text: string;
   sender: SenderType; 
   direction: Direction;
   timestamp: Date;
-  status: 'sent' | 'delivered' | 'read' | 'failed';
+  status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed';
 }
 
 export interface Contact {
@@ -52,6 +62,7 @@ export interface RAGDocument {
 export enum AppView {
   DASHBOARD = 'dashboard',
   KNOWLEDGE = 'knowledge',
+  LEADS = 'leads', // <--- NEW VIEW
   DEVICES = 'devices',
   SETTINGS = 'settings'
 }
@@ -63,8 +74,17 @@ export interface DBDevice {
   name: string;
   phone_number: string;
   color: string;
-  alert_email?: string; // <--- NEW DB COLUMN
+  alert_email?: string; 
   created_at: string;
+}
+
+export interface DBLead {
+  id: number;
+  device_id: string;
+  phone_number: string;
+  name: string;
+  address: string;
+  updated_at: string;
 }
 
 export interface DBConversation {
