@@ -1,0 +1,11 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # Tell Netlify to ignore these keys during the secrets scan
+  # These are necessary for the client-side functionality of this specific dashboard architecture
+  SECRETS_SCAN_OMIT_KEYS = "VITE_GEMINI_API_KEY,VITE_SUPABASE_ANON_KEY,VITE_SUPABASE_URL"
+  
+  # Ensure Node version is consistent
+  NODE_VERSION = "20"

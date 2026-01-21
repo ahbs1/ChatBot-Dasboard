@@ -25,6 +25,14 @@ VITE_GEMINI_API_KEY=your-google-gemini-api-key
 
 *Note: Use the `ANON` key here. Never use the Service key on the frontend.*
 
+### ⚠️ Troubleshooting Netlify Deploy
+If your deploy fails with **"Secrets scanning detected secrets"**:
+1.  This is expected because this architecture uses client-side AI and DB connections.
+2.  We have included a `netlify.toml` file to automatically whitelist these keys.
+3.  If it still fails, go to **Netlify Site Settings > Build & Deploy > Environment** and add this variable manually:
+    *   Key: `SECRETS_SCAN_OMIT_KEYS`
+    *   Value: `VITE_GEMINI_API_KEY,VITE_SUPABASE_ANON_KEY,VITE_SUPABASE_URL`
+
 ---
 
 ## ⚙️ Part 2: Backend Worker Setup (Linux VPS)
