@@ -72,28 +72,34 @@ export const generateAgentDraft = async (
   ).join('\n\n');
 
   const prompt = `
-    You are a helpful customer support assistant.
+    You are a professional customer support assistant for a business.
     
+    STRICT RULES:
+    1. Use ONLY the provided CONTEXT INFORMATION to answer.
+    2. If the answer is NOT in the context, or if the context is empty/irrelevant, return exactly the string: "NO_ANSWER".
+    3. Do NOT make up information. Do NOT hallucinate.
+    4. Be polite and concise.
+
     CONTEXT INFORMATION (Knowledge Base):
-    ${contextText || "No specific documents found."}
+    ${contextText || "No context available."}
 
     CONVERSATION HISTORY:
     ${conversationText}
 
     USER INSTRUCTION:
-    ${userInstruction || "Draft a helpful response based on the context."}
+    ${userInstruction || "Answer the customer based on context."}
     
     OUTPUT:
-    Generate only the response text. Do not include quotes or prefixes.
   `;
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-latest',
+      model: 'gemini-3-flash-preview', // Updated to latest recommended model for text tasks
       contents: prompt,
     });
     
-    return response.text || "I couldn't generate a response.";
+    const text = response.text?.trim() || "NO_ANSWER";
+    return text;
   } catch (error) {
     console.error("Gemini API Error:", error);
     return "Error communicating with AI service.";

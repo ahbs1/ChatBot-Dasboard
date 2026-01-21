@@ -8,6 +8,7 @@ import { KnowledgeBaseManager } from './components/KnowledgeBaseManager';
 import { DatabaseSetup } from './components/DatabaseSetup';
 import { BackendLogicViewer } from './components/BackendLogicViewer';
 import { RealtimeSetup } from './components/RealtimeSetup';
+import { IntegrationGuide } from './components/IntegrationGuide';
 import { DeviceManager } from './components/DeviceManager';
 import { LeadsTable } from './components/LeadsTable'; 
 import { MessageSquare, BookOpen, Settings, LayoutGrid, Smartphone, Users, Activity } from 'lucide-react';
@@ -15,18 +16,12 @@ import { useRealtime } from './hooks/useRealtime';
 import { supabase } from './lib/supabaseClient';
 import { generateEmbedding } from './services/geminiService';
 
-// Helper for Fonnte Token
-const getFonnteToken = () => {
-    // @ts-ignore
-    return (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FONNTE_TOKEN) || process.env.VITE_FONNTE_TOKEN || '';
-};
-
 const App: React.FC = () => {
   const [activeView, setActiveView] = useState<AppView>(AppView.DASHBOARD);
   
   // State
-  const [devices, setDevices] = useState<Device[]>([]); // Init empty
-  const [contacts, setContacts] = useState<Contact[]>([]); // Init empty
+  const [devices, setDevices] = useState<Device[]>([]); 
+  const [contacts, setContacts] = useState<Contact[]>([]); 
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null);
   const [allMessages, setAllMessages] = useState<Record<string, Message[]>>({});
   const [ragDocs, setRagDocs] = useState<RAGDocument[]>([]);
@@ -49,8 +44,9 @@ const App: React.FC = () => {
                 name: d.name,
                 phoneNumber: d.phone_number,
                 color: d.color,
-                status: 'disconnected', // Default, realtime will update
-                alertEmail: d.alert_email
+                status: 'disconnected', // Status will be updated by Realtime
+                alertEmail: d.alert_email,
+                adminNumber: d.admin_number // Map from DB
             })));
         } else {
             setDevices(MOCK_DEVICES); // Fallback for Demo
@@ -73,7 +69,7 @@ const App: React.FC = () => {
              }));
              setContacts(mappedContacts);
         } else {
-             setContacts(MOCK_CONTACTS); // Fallback
+             setContacts(MOCK_CONTACTS); 
              setAllMessages(MOCK_MESSAGES);
         }
         
@@ -136,7 +132,14 @@ const App: React.FC = () => {
   const handleRealtimeMessage = useCallback((newMsg: Message, contactId: string) => {
     setAllMessages(prev => {
       const existing = prev[contactId] || [];
-      if (existing.some(m => m.id === newMsg.id)) return prev;
+      const index = existing.findIndex(m => m.id === newMsg.id);
+      
+      if (index !== -1) {
+          const updated = [...existing];
+          updated[index] = newMsg;
+          return { ...prev, [contactId]: updated };
+      }
+      
       return {
         ...prev,
         [contactId]: [...existing, newMsg]
@@ -157,10 +160,9 @@ const App: React.FC = () => {
                   : c
               ).sort((a, b) => b.lastMessageTime.getTime() - a.lastMessageTime.getTime());
         } else {
-            // New Contact from Realtime!
             return [{
                 id: contactId,
-                deviceId: 'unknown', // Ideally we get this from DB join
+                deviceId: 'unknown', 
                 name: contactId,
                 phoneNumber: contactId,
                 avatar: `https://ui-avatars.com/api/?name=${contactId}`,
@@ -184,7 +186,6 @@ const App: React.FC = () => {
   useEffect(() => {
     const heartbeat = async () => {
       try {
-        console.log('💓 Heartbeat');
         await supabase.from('system_status').upsert({
           id: 'heartbeat',
           status: 'connected',
@@ -239,67 +240,38 @@ const App: React.FC = () => {
   const handleSendMessage = async (text: string, sender: SenderType, teachBot: boolean) => {
     if (!selectedContactId || !selectedContact) return;
 
-    const tempId = 'temp-' + Date.now();
-    const newMessage: Message = {
-      id: tempId,
-      text,
-      sender,
-      direction: Direction.OUTBOUND,
-      timestamp: new Date(),
-      status: 'pending'
-    };
-
-    // 1. Optimistic Update
-    setAllMessages(prev => ({
-      ...prev,
-      [selectedContactId]: [...(prev[selectedContactId] || []), newMessage]
-    }));
-    updateContactLastMessage(selectedContactId, text);
-
-    // 2. SEND TO FONNTE (Real WhatsApp)
-    const token = getFonnteToken();
-    if (token) {
-        try {
-            const formData = new FormData();
-            formData.append('target', selectedContactId);
-            formData.append('message', text);
-            // formData.append('url', 'https://md.fonnte.com/images/wa-logo.png'); // Optional Media
-
-            const res = await fetch('https://api.fonnte.com/send', {
-                method: 'POST',
-                headers: { 'Authorization': token },
-                body: formData
-            });
-            const result = await res.json();
-            console.log("Fonnte Send Result:", result);
-            
-            // Mark as sent if successful
-            if (result.status) {
-                 setAllMessages(prev => ({
-                    ...prev,
-                    [selectedContactId]: prev[selectedContactId].map(m => m.id === tempId ? { ...m, status: 'sent' } : m)
-                 }));
-            }
-        } catch (fonnteErr) {
-            console.error("Fonnte API Error:", fonnteErr);
-        }
-    } else {
-        console.warn("⚠️ No Fonnte Token found in .env (VITE_FONNTE_TOKEN). Message saved to DB but NOT sent to WA.");
-    }
-
-    // 3. Save to Supabase
     try {
-      await supabase.from('messages').insert({
+      const { data, error } = await supabase.from('messages').insert({
         conversation_id: selectedContactId,
         message: text,
         direction: 'outbound',
-        status: 'sent'
-      });
+        status: 'pending' 
+      }).select().single();
+
+      if (error) throw error;
+
+      if (data) {
+          const newMessage: Message = {
+            id: data.id.toString(),
+            text: text,
+            sender: sender,
+            direction: Direction.OUTBOUND,
+            timestamp: new Date(data.created_at),
+            status: 'pending'
+          };
+
+          setAllMessages(prev => ({
+            ...prev,
+            [selectedContactId]: [...(prev[selectedContactId] || []), newMessage]
+          }));
+          updateContactLastMessage(selectedContactId, text);
+      }
+
     } catch (err) {
       console.error("Failed to insert message:", err);
+      alert("Failed to save message to database. Check connection.");
     }
 
-    // 4. Train Bot
     if (teachBot) {
       const history = allMessages[selectedContactId] || [];
       const lastUserMsg = [...history].reverse().find(m => m.direction === Direction.INBOUND);
@@ -311,31 +283,20 @@ const App: React.FC = () => {
 
   const handleEditMessage = async (messageId: string, newText: string) => {
     if (!selectedContactId || !selectedContact) return;
-
-    // 1. Update Local State UI
     setAllMessages(prev => ({
       ...prev,
       [selectedContactId]: prev[selectedContactId].map(m => 
         m.id === messageId ? { ...m, text: newText } : m
       )
     }));
+    try {
+        await supabase.from('messages').update({ message: newText }).eq('id', messageId);
+    } catch (e) { console.error(e); }
 
-    // 2. Update DB
-    if (!messageId.startsWith('temp-')) {
-       try {
-         await supabase.from('messages').update({ message: newText }).eq('id', messageId);
-       } catch (e) {
-         console.error("Failed to update message DB", e);
-       }
-    }
-
-    // 3. TRAIN BOT
     const messages = allMessages[selectedContactId];
     const msgIndex = messages.findIndex(m => m.id === messageId);
-    
     const historyBefore = messages.slice(0, msgIndex);
     const lastUserMsg = [...historyBefore].reverse().find(m => m.direction === Direction.INBOUND);
-
     if (lastUserMsg) {
       await trainBotWithPair(lastUserMsg.text, newText, selectedContact.deviceId);
     }
@@ -346,9 +307,7 @@ const App: React.FC = () => {
     setContacts(prev => prev.map(c => c.id === selectedContactId ? { ...c, isBotActive: isActive } : c));
     try {
       await supabase.from('conversations').update({ mode: isActive ? 'bot' : 'agent' }).eq('wa_number', selectedContactId);
-    } catch (err) {
-      console.error(err);
-    }
+    } catch (err) { console.error(err); }
   };
 
   const handleAddDocuments = (newDocs: RAGDocument[]) => {
@@ -363,7 +322,8 @@ const App: React.FC = () => {
          name: newDevice.name,
          phone_number: newDevice.phoneNumber,
          color: newDevice.color,
-         alert_email: newDevice.alertEmail
+         alert_email: newDevice.alertEmail,
+         admin_number: newDevice.adminNumber // <--- SAVE ADMIN NUMBER TO DB
        });
      } catch (e) { console.warn(e); }
   };
@@ -461,7 +421,7 @@ const App: React.FC = () => {
                  <h1 className="text-3xl font-light text-gray-700 mb-2">WhatsAgent Multi-Device</h1>
                  <p className="text-gray-500 max-w-md text-center">
                    Select a conversation from the left. <br/>
-                   Make sure your Fonnte Webhook is active.
+                   The <strong>Custom Worker</strong> will handle message delivery.
                  </p>
               </div>
             )}
@@ -498,7 +458,14 @@ const App: React.FC = () => {
         {activeView === AppView.SETTINGS && (
            <div className="flex-1 bg-gray-50 p-8 overflow-y-auto">
              <div className="max-w-3xl mx-auto space-y-6">
-               <h1 className="text-2xl font-bold text-gray-800">System Integration (Deployment Mode)</h1>
+               <h1 className="text-2xl font-bold text-gray-800">System Configuration</h1>
+               
+               {/* Integration Guide */}
+               <IntegrationGuide />
+               
+               <hr className="border-gray-200 my-8" />
+               
+               <h2 className="text-xl font-bold text-gray-700">Technical Resources</h2>
                <DatabaseSetup />
                <BackendLogicViewer />
                <RealtimeSetup />

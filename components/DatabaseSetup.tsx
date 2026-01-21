@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { Button } from './Button';
 import { Copy, Check, Database, Terminal, Clock } from 'lucide-react';
 
-const SQL_SETUP = `-- 1. Enable Vector Extension (for RAG)
+const SQL_SETUP = `-- 1. Enable Extensions
 create extension if not exists vector;
+create extension if not exists pg_cron;
 
 -- 2. Create Devices Table
 create table if not exists devices (
@@ -12,10 +13,11 @@ create table if not exists devices (
   phone_number text, 
   color text default 'bg-blue-500', 
   alert_email text, 
+  admin_number text, -- Stores Admin WA for alerts
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 3. Create Knowledge Base Table
+-- 3. Create Knowledge Base (RAG)
 create table if not exists knowledge_base (
   id bigserial primary key,
   device_id text references devices(id) on delete cascade,
@@ -24,7 +26,7 @@ create table if not exists knowledge_base (
   metadata jsonb
 );
 
--- 4. Create Leads Table (NEW: Stores extracted customer data)
+-- 4. Create Leads (CRM)
 create table if not exists leads (
   id bigserial primary key,
   device_id text references devices(id) on delete cascade,
@@ -32,11 +34,10 @@ create table if not exists leads (
   name text,
   address text,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  -- CONSTRAINT: One lead per phone number per device.
   unique(device_id, phone_number) 
 );
 
--- 5. Create Conversations Table
+-- 5. Create Conversations
 create table if not exists conversations (
   wa_number text primary key, 
   device_id text references devices(id) on delete set null,
@@ -45,7 +46,7 @@ create table if not exists conversations (
   last_active timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 6. Create Messages Table
+-- 6. Create Messages
 create table if not exists messages (
   id bigserial primary key,
   conversation_id text references conversations(wa_number) on delete cascade,
@@ -55,7 +56,7 @@ create table if not exists messages (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 7. Create System Status Table
+-- 7. Create System Status (For Heartbeat & QR)
 create table if not exists system_status (
   id text primary key, 
   status text check (status in ('connecting', 'connected', 'qr_ready', 'disconnected')) default 'disconnected',
@@ -63,7 +64,12 @@ create table if not exists system_status (
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 8. Create Similarity Search Function
+-- 8. Enable Realtime for Messages & Status
+alter publication supabase_realtime add table messages;
+alter publication supabase_realtime add table conversations;
+alter publication supabase_realtime add table system_status;
+
+-- 9. Similarity Search Function (RPC)
 create or replace function match_documents (
   query_embedding vector(768),
   match_threshold float,
@@ -81,35 +87,24 @@ as $$
 begin
   return query
   select
-    knowledge_base.id,
-    knowledge_base.content,
-    knowledge_base.metadata,
-    1 - (knowledge_base.embedding <=> query_embedding) as similarity
-  from knowledge_base
+    kb.id,
+    kb.content,
+    kb.metadata,
+    1 - (kb.embedding <=> query_embedding) as similarity
+  from knowledge_base kb
   where 
-    knowledge_base.device_id = filter_device_id
-    and 1 - (knowledge_base.embedding <=> query_embedding) > match_threshold
-  order by knowledge_base.embedding <=> query_embedding
+    kb.device_id = filter_device_id
+    and 1 - (kb.embedding <=> query_embedding) > match_threshold
+  order by kb.embedding <=> query_embedding
   limit match_count;
 end;
 $$;
 
--- 9. PREVENT PAUSE (Heartbeat Cron Job)
--- IMPORTANT: Enable 'pg_cron' in Supabase Dashboard > Database > Extensions first!
-create extension if not exists pg_cron;
-
--- Insert a dummy heartbeat record if not exists
+-- 10. Heartbeat Monitor (Optional: prevent idle)
 insert into system_status (id, status, updated_at)
 values ('heartbeat', 'connected', now())
 on conflict (id) do nothing;
-
--- Schedule a job to run every day at midnight (UTC)
--- This updates the record, counting as 'Database Activity' to prevent pausing.
-select cron.schedule(
-  'daily-heartbeat',
-  '0 0 * * *', 
-  $$ update system_status set updated_at = now() where id = 'heartbeat' $$
-);`;
+`;
 
 export const DatabaseSetup: React.FC = () => {
   const [copied, setCopied] = useState(false);
@@ -125,7 +120,7 @@ export const DatabaseSetup: React.FC = () => {
       <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
         <h3 className="font-semibold text-gray-700 flex items-center gap-2">
           <Database size={18} className="text-blue-600" />
-          Supabase Database Setup (With Anti-Pause Cron)
+          Supabase Database Setup
         </h3>
         <Button 
           variant="secondary" 
@@ -138,15 +133,13 @@ export const DatabaseSetup: React.FC = () => {
       </div>
       
       <div className="p-6">
-        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800 flex items-start gap-2">
+        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800 flex items-start gap-2">
           <Clock size={16} className="mt-0.5" />
           <div>
-            <strong>Prevent Project Pausing:</strong> 
+            <strong>Ready for Deployment:</strong> 
             <p className="mt-1 text-xs">
-              Added Section 9 to the SQL. This sets up <code>pg_cron</code> to update a 'heartbeat' record every day at midnight. 
-              This artificial activity keeps your Free Tier Supabase project alive.
-              <br/>
-              <em>Note: You might need to enable the <strong>pg_cron</strong> extension manually in the Supabase Dashboard under "Database" {'>'} "Extensions" if this script fails.</em>
+              This SQL script prepares your Supabase project for the Linux Worker. 
+              Run this in the Supabase <strong>SQL Editor</strong>.
             </p>
           </div>
         </div>

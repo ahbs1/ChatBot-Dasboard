@@ -16,7 +16,8 @@ export interface Device {
   phoneNumber: string; // The WA Number
   color: string;       // UI Badge Color
   status: 'connected' | 'disconnected' | 'qr_ready';
-  alertEmail?: string; // <--- NEW: Email for disconnection alerts
+  alertEmail?: string; // Email for disconnection alerts
+  adminNumber?: string; // <--- NEW: WhatsApp number for Handover Alerts
 }
 
 export interface Lead {
@@ -62,7 +63,7 @@ export interface RAGDocument {
 export enum AppView {
   DASHBOARD = 'dashboard',
   KNOWLEDGE = 'knowledge',
-  LEADS = 'leads', // <--- NEW VIEW
+  LEADS = 'leads',
   DEVICES = 'devices',
   SETTINGS = 'settings'
 }
@@ -75,6 +76,7 @@ export interface DBDevice {
   phone_number: string;
   color: string;
   alert_email?: string; 
+  admin_number?: string; // <--- NEW DB Column
   created_at: string;
 }
 

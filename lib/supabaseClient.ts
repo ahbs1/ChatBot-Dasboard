@@ -13,11 +13,19 @@ const getEnv = (key: string, viteKey: string) => {
   return '';
 };
 
-const SUPABASE_URL = getEnv('NEXT_PUBLIC_SUPABASE_URL', 'VITE_SUPABASE_URL');
-const SUPABASE_ANON_KEY = getEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'VITE_SUPABASE_ANON_KEY');
+const ENV_SUPABASE_URL = getEnv('NEXT_PUBLIC_SUPABASE_URL', 'VITE_SUPABASE_URL');
+const ENV_SUPABASE_ANON_KEY = getEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'VITE_SUPABASE_ANON_KEY');
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.warn('⚠️ Supabase credentials missing! Check your .env file.');
+let client;
+
+if (!ENV_SUPABASE_URL || !ENV_SUPABASE_ANON_KEY) {
+  console.error('🔴 CRITICAL: Supabase credentials missing! Please check your .env file or Netlify Environment Variables.');
+  
+  // Create a dummy client with a placeholder URL to prevent "Uncaught Error: supabaseUrl is required"
+  // This allows the UI to render (and show empty states) instead of crashing entirely.
+  client = createClient('https://placeholder-project.supabase.co', 'placeholder-key');
+} else {
+  client = createClient(ENV_SUPABASE_URL, ENV_SUPABASE_ANON_KEY);
 }
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+export const supabase = client;

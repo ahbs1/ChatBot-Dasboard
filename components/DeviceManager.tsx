@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Smartphone, RefreshCw, CheckCircle, WifiOff, Plus, Trash, BellRing, Info, Mail } from 'lucide-react';
+import { Smartphone, RefreshCw, CheckCircle, WifiOff, Plus, Trash, BellRing, Info, Mail, UserCheck } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { Device } from '../types';
 import { Button } from './Button';
@@ -11,7 +11,6 @@ interface DeviceManagerProps {
 }
 
 export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevice, onDeleteDevice }) => {
-  // NOTE: We use 'devices' from props now, so the list is synced with App.tsx
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [deviceStatus, setDeviceStatus] = useState<string>('disconnected');
@@ -23,6 +22,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
   const [newDeviceName, setNewDeviceName] = useState('');
   const [newDevicePhone, setNewDevicePhone] = useState('');
   const [newDeviceEmail, setNewDeviceEmail] = useState('');
+  const [newDeviceAdminNumber, setNewDeviceAdminNumber] = useState(''); // <--- NEW STATE
 
   // Set initial selection
   useEffect(() => {
@@ -112,16 +112,17 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
       phoneNumber: newDevicePhone || 'No Number',
       color,
       status: 'disconnected',
-      alertEmail: newDeviceEmail
+      alertEmail: newDeviceEmail,
+      adminNumber: newDeviceAdminNumber // <--- PASS TO PARENT
     };
 
-    // Pass to parent to update Global State + DB
     onAddDevice(newDevice);
 
     // Reset Form
     setNewDeviceName('');
     setNewDevicePhone('');
     setNewDeviceEmail('');
+    setNewDeviceAdminNumber('');
     
     // Auto select new device
     setSelectedDeviceId(id);
@@ -192,18 +193,36 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
                 />
                 <input 
                   className="w-full text-sm p-2 border rounded bg-gray-50 focus:ring-2 focus:ring-blue-100 outline-none" 
-                  placeholder="Phone Number (e.g. 6281...)"
+                  placeholder="Device Phone (e.g. 6281...)"
                   value={newDevicePhone}
                   onChange={e => setNewDevicePhone(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleAddSubmit()}
                 />
-                <input 
-                  className="w-full text-sm p-2 border rounded bg-gray-50 focus:ring-2 focus:ring-blue-100 outline-none" 
-                  placeholder="Alert Email (Required for notifications)"
-                  value={newDeviceEmail}
-                  onChange={e => setNewDeviceEmail(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleAddSubmit()}
-                />
+                
+                {/* Admin Number Input */}
+                <div className="relative">
+                   <UserCheck size={14} className="absolute top-2.5 left-2.5 text-gray-400" />
+                   <input 
+                     className="w-full text-sm p-2 pl-8 border rounded bg-gray-50 focus:ring-2 focus:ring-blue-100 outline-none" 
+                     placeholder="Admin WA (for Alerts)"
+                     value={newDeviceAdminNumber}
+                     onChange={e => setNewDeviceAdminNumber(e.target.value)}
+                     onKeyDown={e => e.key === 'Enter' && handleAddSubmit()}
+                     title="Notifications for handover will be sent here"
+                   />
+                </div>
+
+                <div className="relative">
+                   <Mail size={14} className="absolute top-2.5 left-2.5 text-gray-400" />
+                   <input 
+                     className="w-full text-sm p-2 pl-8 border rounded bg-gray-50 focus:ring-2 focus:ring-blue-100 outline-none" 
+                     placeholder="Admin Email (for Downtime)"
+                     value={newDeviceEmail}
+                     onChange={e => setNewDeviceEmail(e.target.value)}
+                     onKeyDown={e => e.key === 'Enter' && handleAddSubmit()}
+                   />
+                </div>
+
                 <Button 
                     onClick={handleAddSubmit} 
                     className="w-full text-xs" 
@@ -228,15 +247,28 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
                    <h2 className="text-xl font-bold text-gray-800">
                      {selectedDevice.name}
                    </h2>
-                   <p className="text-sm text-gray-500 flex items-center justify-center gap-1">
-                     {selectedDevice.alertEmail ? (
-                       <span className="flex items-center gap-1 text-green-600 bg-green-50 px-2 py-0.5 rounded-full text-xs">
-                         <Mail size={12} /> Email Alerts: Active
-                       </span>
-                     ) : (
-                       <span className="text-orange-500 text-xs">No email set for alerts</span>
-                     )}
-                   </p>
+                   
+                   <div className="flex flex-col gap-1 items-center justify-center mt-2">
+                     <p className="text-sm text-gray-500 flex items-center justify-center gap-1">
+                       {selectedDevice.adminNumber ? (
+                         <span className="flex items-center gap-1 text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full text-xs">
+                           <UserCheck size={12} /> Admin WA: {selectedDevice.adminNumber}
+                         </span>
+                       ) : (
+                         <span className="text-orange-500 text-xs">No Admin WA set (Alerts sent to Self)</span>
+                       )}
+                     </p>
+                     
+                     <p className="text-sm text-gray-500 flex items-center justify-center gap-1">
+                       {selectedDevice.alertEmail ? (
+                         <span className="flex items-center gap-1 text-green-600 bg-green-50 px-2 py-0.5 rounded-full text-xs">
+                           <Mail size={12} /> Email Alerts: {selectedDevice.alertEmail}
+                         </span>
+                       ) : (
+                         <span className="text-orange-500 text-xs">No Email Alerts set</span>
+                       )}
+                     </p>
+                   </div>
                 </div>
 
                 <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 min-h-[300px] flex items-center justify-center mb-6 relative">
