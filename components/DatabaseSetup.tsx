@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Button } from './Button';
-import { Copy, Check, Database, Terminal, Globe, AlertTriangle } from 'lucide-react';
+import { Copy, Check, Database, Globe, AlertTriangle, Terminal, ChevronRight, ChevronDown } from 'lucide-react';
 
 const SQL_SETUP = `-- 1. Enable Extensions
 create extension if not exists vector;
@@ -92,51 +92,69 @@ end;
 $$;
 `;
 
-const EDGE_FUNCTION_CODE = `/**
- * ⚠️ THIS IS NOT SQL! ⚠️
- * 
- * Do NOT run this in the Supabase SQL Editor.
- * This is a Deno/TypeScript file for a Supabase Edge Function.
- * 
- * DEPLOYMENT INSTRUCTIONS:
- * 1. Install Supabase CLI
- * 2. Run: supabase functions new fonnte-webhook
- * 3. Paste this code into supabase/functions/fonnte-webhook/index.ts
- * 4. Run: supabase functions deploy fonnte-webhook --no-verify-jwt
- */
+const EDGE_FUNCTION_CODE = `// FILE: supabase/functions/fonnte-webhook/index.ts
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const supabase = createClient(
-  Deno.env.get("SUPABASE_URL") ?? "",
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-);
+// Access environment variables securely
+const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 serve(async (req) => {
   try {
-    const { sender, message, device } = await req.json(); // Fonnte Payload
-    
-    // 1. Find the device by phone number
-    // Note: Fonnte payload structure might vary. Adjust 'sender' / 'device' extraction as needed.
-    
-    // 2. Insert Message
-    const { error } = await supabase.from('messages').insert({
-      conversation_id: sender, // The user's phone number
+    // 1. Parse Fonnte Payload
+    const payload = await req.json();
+    console.log("Fonnte Payload:", payload);
+
+    // Fonnte sends: { sender: "628...", message: "text", name: "Name", device: "token/id" }
+    const { sender, message, name, device } = payload;
+
+    // Filter: Ignore status updates or empty messages
+    if (!sender || !message) {
+      return new Response(JSON.stringify({ status: "ignored" }), { headers: { "Content-Type": "application/json" } });
+    }
+
+    // 2. Insert Message into Database
+    const { error: msgError } = await supabase.from('messages').insert({
+      conversation_id: sender,
       message: message,
       direction: 'inbound',
-      status: 'read'
+      status: 'read' // Fonnte webhooks are typically 'received' messages
     });
-    
-    // 3. Update/Create Conversation
-    await supabase.from('conversations').upsert({
-      wa_number: sender,
-      last_active: new Date(),
-    }, { onConflict: 'wa_number', ignoreDuplicates: false });
 
-    return new Response(JSON.stringify({ status: "ok" }), { headers: { "Content-Type": "application/json" } });
+    if (msgError) throw msgError;
+
+    // 3. Upsert Conversation / Lead
+    // We try to update the 'last_active' timestamp. If specific device mapping is needed,
+    // you might need to query the 'devices' table using the Fonnte token first.
+    
+    // For now, we assume standard mapping or update existing:
+    const { error: convoError } = await supabase.from('conversations').upsert({
+      wa_number: sender,
+      name: name || sender,
+      last_active: new Date(),
+      // 'device_id' will be null for new chats unless we query the devices table.
+      // Ideally, perform a lookup here if you manage multiple devices.
+    }, { onConflict: 'wa_number' });
+
+    if (convoError) throw convoError;
+
+    // 4. (Optional) Auto-reply Logic via Gemini could be triggered here
+    // or handled by the frontend listening to Realtime changes.
+
+    return new Response(JSON.stringify({ status: "ok" }), { 
+      status: 200,
+      headers: { "Content-Type": "application/json" } 
+    });
+
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), { status: 400 });
+    console.error("Webhook Error:", err);
+    return new Response(JSON.stringify({ error: err.message }), { 
+      status: 400, // Return 400 so Fonnte knows something went wrong, or 200 to suppress retries
+      headers: { "Content-Type": "application/json" } 
+    });
   }
 });
 `;
@@ -144,6 +162,7 @@ serve(async (req) => {
 export const DatabaseSetup: React.FC = () => {
   const [copiedSql, setCopiedSql] = useState(false);
   const [copiedEdge, setCopiedEdge] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
 
   const copyToClipboard = (text: string, setter: (val: boolean) => void) => {
     navigator.clipboard.writeText(text);
@@ -172,7 +191,7 @@ export const DatabaseSetup: React.FC = () => {
         </div>
         <div className="p-6">
           <p className="text-sm text-gray-600 mb-4">
-            Run this in the <strong>SQL Editor</strong> of your Supabase dashboard.
+            Run this in the <strong>SQL Editor</strong> of your Supabase dashboard to create the necessary tables.
           </p>
           <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-xs font-mono leading-relaxed border border-gray-700 max-h-64">
             <code>{SQL_SETUP}</code>
@@ -197,18 +216,58 @@ export const DatabaseSetup: React.FC = () => {
           </Button>
         </div>
         <div className="p-6">
-          <div className="flex items-start gap-3 bg-red-100 p-3 rounded-lg mb-4 border border-red-200">
+          
+          <div className="flex items-start gap-3 bg-red-100 p-3 rounded-lg mb-6 border border-red-200">
              <AlertTriangle className="text-red-600 flex-shrink-0" size={20} />
              <div>
-                <p className="text-sm font-bold text-red-800">DO NOT RUN THIS AS SQL!</p>
+                <p className="text-sm font-bold text-red-800">DO NOT RUN THIS IN SQL EDITOR!</p>
                 <p className="text-xs text-red-700 mt-1">
-                    This is TypeScript code. Running this in the SQL Editor will cause syntax errors (<code>// ...</code>).
-                    <br/>
-                    You must deploy this using the <strong>Supabase CLI</strong> or via the Supabase Dashboard "Edge Functions" section (if available).
+                    This is TypeScript code for a server-side function. It must be deployed via CLI.
                 </p>
              </div>
           </div>
-          <pre className="bg-gray-900 text-purple-100 p-4 rounded-lg overflow-x-auto text-xs font-mono leading-relaxed border border-gray-700 max-h-64">
+
+          <button 
+            onClick={() => setShowTutorial(!showTutorial)}
+            className="w-full flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg mb-4 hover:bg-gray-100 transition-colors"
+          >
+            <span className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <Terminal size={16} />
+                Tutorial: How to Deploy this Function
+            </span>
+            {showTutorial ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          </button>
+
+          {showTutorial && (
+              <div className="bg-gray-800 text-gray-200 p-4 rounded-lg text-xs font-mono mb-4 space-y-3 border border-gray-700">
+                  <div>
+                      <p className="text-green-400 font-bold"># 1. Install Supabase CLI (Terminal)</p>
+                      <p className="opacity-70">npm install -g supabase</p>
+                  </div>
+                  <div>
+                      <p className="text-green-400 font-bold"># 2. Login to Supabase</p>
+                      <p className="opacity-70">supabase login</p>
+                  </div>
+                  <div>
+                      <p className="text-green-400 font-bold"># 3. Create Function</p>
+                      <p className="opacity-70">supabase functions new fonnte-webhook</p>
+                  </div>
+                  <div>
+                      <p className="text-green-400 font-bold"># 4. Paste Code</p>
+                      <p className="opacity-70">Copy the code below and paste it into: <strong>supabase/functions/fonnte-webhook/index.ts</strong></p>
+                  </div>
+                  <div>
+                      <p className="text-green-400 font-bold"># 5. Deploy</p>
+                      <p className="opacity-70">supabase functions deploy fonnte-webhook --no-verify-jwt</p>
+                  </div>
+                  <div>
+                      <p className="text-green-400 font-bold"># 6. Copy URL to Fonnte</p>
+                      <p className="opacity-70">Get the URL from terminal output and paste to Fonnte Dashboard Webhook URL.</p>
+                  </div>
+              </div>
+          )}
+
+          <pre className="bg-gray-900 text-purple-100 p-4 rounded-lg overflow-x-auto text-xs font-mono leading-relaxed border border-gray-700 max-h-80">
             <code>{EDGE_FUNCTION_CODE}</code>
           </pre>
         </div>
