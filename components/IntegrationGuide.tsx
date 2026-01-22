@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, Key, Database, Server, Globe, Smartphone, CheckCircle2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Key, Database, Globe, Smartphone, MessageSquare } from 'lucide-react';
 
 interface GuideStepProps {
   title: string;
@@ -39,117 +39,67 @@ export const IntegrationGuide: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="bg-blue-50 border border-blue-200 p-6 rounded-xl">
-        <h2 className="text-xl font-bold text-blue-900 mb-2">Complete Integration Guide</h2>
+        <h2 className="text-xl font-bold text-blue-900 mb-2">Fonnte Integration Guide</h2>
         <p className="text-blue-700 text-sm">
-          Follow these 5 steps to get your WhatsAgent AI fully operational.
+          Follow these steps to connect your WhatsApp using Fonnte Cloud API.
         </p>
       </div>
 
       <div>
-        {/* Step 1: API Keys */}
+        {/* Step 1: Fonnte Account */}
         <GuideStep 
-          title="1. Get API Keys & Services" 
-          icon={Key} 
+          title="1. Fonnte Account & Token" 
+          icon={MessageSquare} 
           isOpen={openStep === 0} 
           onToggle={() => toggle(0)}
         >
-          <p>Before writing code, you need two external services:</p>
           <ul className="list-disc pl-5 space-y-2">
-            <li>
-              <strong>Google Gemini API:</strong> Go to <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" className="text-blue-600 underline">Google AI Studio</a>. Create a new API Key. This powers the chatbot brain.
-            </li>
-            <li>
-              <strong>Supabase:</strong> Go to <a href="https://supabase.com/" target="_blank" rel="noreferrer" className="text-blue-600 underline">Supabase.com</a> and create a new project.
-              <ul className="list-disc pl-5 mt-1 text-gray-500 text-xs">
-                <li>Go to <strong>Project Settings</strong> {'>'} <strong>API</strong>.</li>
-                <li>Copy the <code>Project URL</code>.</li>
-                <li>Copy the <code>anon public</code> key (for Frontend).</li>
-                <li>Copy the <code>service_role</code> secret key (for Backend Worker).</li>
-              </ul>
-            </li>
+            <li>Register at <a href="https://fonnte.com" className="text-blue-600 underline" target="_blank">fonnte.com</a>.</li>
+            <li>Connect your WhatsApp number in their dashboard.</li>
+            <li>Go to <strong>API</strong> menu and copy your <strong>API Token</strong>.</li>
           </ul>
         </GuideStep>
 
-        {/* Step 2: Database */}
+        {/* Step 2: Configure Dashboard */}
         <GuideStep 
-          title="2. Database Initialization" 
-          icon={Database} 
+          title="2. Add Device in Dashboard" 
+          icon={Smartphone} 
           isOpen={openStep === 1} 
           onToggle={() => toggle(1)}
         >
-          <p>You need to create the tables in Supabase to store messages and knowledge base vectors.</p>
-          <ol className="list-decimal pl-5 space-y-2">
-            <li>Copy the SQL script provided in the <strong>"Supabase Database Setup"</strong> section below.</li>
-            <li>Go to your Supabase Dashboard {'>'} <strong>SQL Editor</strong>.</li>
-            <li>Paste the script and click <strong>Run</strong>.</li>
-            <li>This creates tables like <code>messages</code>, <code>devices</code>, and enables <code>pgvector</code> extension.</li>
-          </ol>
-        </GuideStep>
-
-        {/* Step 3: Frontend Deployment */}
-        <GuideStep 
-          title="3. Frontend Deployment (Netlify/Vercel)" 
-          icon={Globe} 
-          isOpen={openStep === 2} 
-          onToggle={() => toggle(2)}
-        >
-          <p>Deploy this dashboard so you can access it from anywhere.</p>
           <ul className="list-disc pl-5 space-y-2">
-            <li>Push this code to <strong>GitHub</strong>.</li>
-            <li>Import the repo in Netlify or Vercel.</li>
-            <li><strong>Crucial:</strong> Add Environment Variables in the deployment settings:
-               <div className="bg-gray-100 p-3 rounded mt-2 font-mono text-xs overflow-x-auto">
-                 VITE_SUPABASE_URL=https://your-project.supabase.co<br/>
-                 VITE_SUPABASE_ANON_KEY=your-public-anon-key<br/>
-                 VITE_GEMINI_API_KEY=your-gemini-key
-               </div>
-            </li>
-            <li>Deploy. Your dashboard is now live!</li>
+            <li>Go to the <strong>Devices</strong> tab in this app.</li>
+            <li>Click <strong>Add Device</strong>.</li>
+            <li>Enter the Name, WhatsApp Number, and paste the <strong>Fonnte API Token</strong>.</li>
           </ul>
         </GuideStep>
 
-        {/* Step 4: Backend Worker */}
+        {/* Step 3: Database & Webhook */}
         <GuideStep 
-          title="4. Backend Worker Setup (VPS)" 
-          icon={Server} 
-          isOpen={openStep === 3} 
-          onToggle={() => toggle(3)}
+          title="3. Deploy Webhook (Supabase)" 
+          icon={Database} 
+          isOpen={openStep === 2} 
+          onToggle={() => toggle(2)}
         >
-          <p>The backend runs the WhatsApp socket (Baileys) and handles AI processing. It needs to stay alive 24/7.</p>
+          <p>To receive incoming messages:</p>
           <ol className="list-decimal pl-5 space-y-2">
-            <li>Get a Linux VPS (DigitalOcean, AWS, or Railway).</li>
-            <li>Install Node.js: <code>sudo apt install nodejs npm</code>.</li>
-            <li>Create a folder <code>wa-worker</code>.</li>
-            <li>Upload the content of the <code>server/</code> folder (index.js, package.json).</li>
-            <li>Run <code>npm install</code>.</li>
-            <li>Create a <code>.env</code> file:
-               <div className="bg-gray-100 p-3 rounded mt-2 font-mono text-xs overflow-x-auto">
-                 SUPABASE_URL=...<br/>
-                 SUPABASE_SERVICE_KEY=... (Must use SERVICE ROLE key here)<br/>
-                 GEMINI_API_KEY=...
-               </div>
-            </li>
-            <li>Start with PM2: <code>pm2 start index.js --name wa-worker</code>.</li>
-            <li>Setup auto-restart: <code>pm2 startup</code> then <code>pm2 save</code>.</li>
+            <li>Go to the <strong>Config</strong> tab here and copy the <strong>Edge Function Code</strong>.</li>
+            <li>Deploy this function to Supabase: <code>supabase functions deploy fonnte-webhook</code>.</li>
+            <li>Get the function URL: <code>https://[project].supabase.co/functions/v1/fonnte-webhook</code>.</li>
+            <li>Go to <a href="https://md.fonnte.com/new/device.php" target="_blank" className="text-blue-600 underline">Fonnte Device Settings</a>.</li>
+            <li>Paste the URL into the <strong>Webhook URL</strong> field.</li>
+            <li>Enable <strong>Webhook Status</strong>.</li>
           </ol>
         </GuideStep>
 
-        {/* Step 5: Connect WhatsApp */}
+        {/* Step 4: Testing */}
         <GuideStep 
-          title="5. Connect WhatsApp Device" 
-          icon={Smartphone} 
-          isOpen={openStep === 4} 
-          onToggle={() => toggle(4)}
+          title="4. Test Connection" 
+          icon={Globe} 
+          isOpen={openStep === 3} 
+          onToggle={() => toggle(3)}
         >
-          <p>Final step to link your real WhatsApp number.</p>
-          <ol className="list-decimal pl-5 space-y-2">
-             <li>Open this Dashboard. Go to <strong>WhatsApp Devices</strong> tab.</li>
-             <li>Add a new Device (Give it a name and Admin number).</li>
-             <li>The backend worker will pick up the new device request.</li>
-             <li>Wait for the Status to change to <strong>QR Ready</strong> on the screen.</li>
-             <li>Scan the QR code using your WhatsApp (Linked Devices).</li>
-             <li>Once connected, the AI will start listening to incoming messages automatically!</li>
-          </ol>
+          <p>Send a message from your phone to the connected WhatsApp number. It should appear in this dashboard instantly!</p>
         </GuideStep>
       </div>
     </div>

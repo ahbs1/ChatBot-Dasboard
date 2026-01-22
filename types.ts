@@ -12,12 +12,12 @@ export enum SenderType {
 
 export interface Device {
   id: string;          // UUID or Unique String
-  name: string;        // Friendly Name (e.g., "Toko Bata", "Jasa Konstruksi")
-  phoneNumber: string; // The WA Number
+  name: string;        // Friendly Name (e.g., "Toko Bata")
+  phoneNumber: string; // The WA Number linked to Fonnte
   color: string;       // UI Badge Color
-  status: 'connected' | 'disconnected' | 'qr_ready';
-  alertEmail?: string; // Email for disconnection alerts
-  adminNumber?: string; // <--- NEW: WhatsApp number for Handover Alerts
+  fonnteToken?: string; // <--- NEW: Fonnte API Token
+  alertEmail?: string; 
+  adminNumber?: string;
 }
 
 export interface Lead {
@@ -75,8 +75,9 @@ export interface DBDevice {
   name: string;
   phone_number: string;
   color: string;
+  fonnte_token?: string; // <--- NEW DB Column
   alert_email?: string; 
-  admin_number?: string; // <--- NEW DB Column
+  admin_number?: string;
   created_at: string;
 }
 

@@ -7,7 +7,6 @@ import { KnowledgePanel } from './components/KnowledgePanel';
 import { KnowledgeBaseManager } from './components/KnowledgeBaseManager';
 import { DatabaseSetup } from './components/DatabaseSetup';
 import { BackendLogicViewer } from './components/BackendLogicViewer';
-import { RealtimeSetup } from './components/RealtimeSetup';
 import { IntegrationGuide } from './components/IntegrationGuide';
 import { DeviceManager } from './components/DeviceManager';
 import { LeadsTable } from './components/LeadsTable'; 
@@ -44,12 +43,12 @@ const App: React.FC = () => {
                 name: d.name,
                 phoneNumber: d.phone_number,
                 color: d.color,
-                status: 'disconnected', // Status will be updated by Realtime
+                fonnteToken: d.fonnte_token, // Load Token
                 alertEmail: d.alert_email,
-                adminNumber: d.admin_number // Map from DB
+                adminNumber: d.admin_number
             })));
         } else {
-            setDevices(MOCK_DEVICES); // Fallback for Demo
+            setDevices(MOCK_DEVICES); 
         }
 
         // B. Fetch Conversations (Contacts)
@@ -182,22 +181,6 @@ const App: React.FC = () => {
 
   useRealtime(handleRealtimeMessage, handleRealtimeContactUpdate);
 
-  // --- KEEP ALIVE LOGIC ---
-  useEffect(() => {
-    const heartbeat = async () => {
-      try {
-        await supabase.from('system_status').upsert({
-          id: 'heartbeat',
-          status: 'connected',
-          updated_at: new Date().toISOString()
-        });
-      } catch (err) { /* silent fail */ }
-    };
-    heartbeat();
-    const intervalId = setInterval(heartbeat, 1000 * 60 * 60);
-    return () => clearInterval(intervalId);
-  }, []);
-
   // ----------------------------
 
   const updateContactLastMessage = (contactId: string, text: string) => {
@@ -214,23 +197,12 @@ const App: React.FC = () => {
         const embedding = await generateEmbedding(newKnowledgeContent);
 
         if (embedding) {
-          const { data, error: kbError } = await supabase.from('knowledge_base').insert({
+          await supabase.from('knowledge_base').insert({
             device_id: deviceId,
             content: newKnowledgeContent,
             embedding: embedding,
             metadata: { type: 'correction', original_question: question }
-          }).select().single();
-
-          if (!kbError && data) {
-            setRagDocs(prev => [{
-              id: data.id.toString(),
-              deviceId: deviceId,
-              title: 'Correction',
-              content: newKnowledgeContent,
-              similarity: 1,
-              metadata: data.metadata
-            }, ...prev]);
-          }
+          });
         }
       } catch (trainErr) {
         console.error("Failed to train bot:", trainErr);
@@ -240,12 +212,20 @@ const App: React.FC = () => {
   const handleSendMessage = async (text: string, sender: SenderType, teachBot: boolean) => {
     if (!selectedContactId || !selectedContact) return;
 
+    // 1. Get Device Token
+    const device = devices.find(d => d.id === selectedContact.deviceId);
+    if (!device?.fonnteToken) {
+        alert("Error: No Fonnte Token configured for this device.");
+        return;
+    }
+
     try {
+      // 2. Save to Supabase (Optimistic UI update happens after DB success)
       const { data, error } = await supabase.from('messages').insert({
         conversation_id: selectedContactId,
         message: text,
         direction: 'outbound',
-        status: 'pending' 
+        status: 'sent' 
       }).select().single();
 
       if (error) throw error;
@@ -257,7 +237,7 @@ const App: React.FC = () => {
             sender: sender,
             direction: Direction.OUTBOUND,
             timestamp: new Date(data.created_at),
-            status: 'pending'
+            status: 'sent'
           };
 
           setAllMessages(prev => ({
@@ -265,6 +245,26 @@ const App: React.FC = () => {
             [selectedContactId]: [...(prev[selectedContactId] || []), newMessage]
           }));
           updateContactLastMessage(selectedContactId, text);
+
+          // 3. CALL FONNTE API
+          // Note: In production, this should ideally be done via an Edge Function to hide the token.
+          // For now, client-side call as requested.
+          const formData = new FormData();
+          formData.append('target', selectedContactId);
+          formData.append('message', text);
+
+          fetch('https://api.fonnte.com/send', {
+              method: 'POST',
+              headers: {
+                  'Authorization': device.fonnteToken
+              },
+              body: formData
+          }).then(res => res.json())
+            .then(res => {
+                console.log("Fonnte Response:", res);
+                if (!res.status) console.error("Fonnte Error", res);
+            })
+            .catch(err => console.error("Fonnte Network Error", err));
       }
 
     } catch (err) {
@@ -322,8 +322,9 @@ const App: React.FC = () => {
          name: newDevice.name,
          phone_number: newDevice.phoneNumber,
          color: newDevice.color,
+         fonnte_token: newDevice.fonnteToken, // Save Token
          alert_email: newDevice.alertEmail,
-         admin_number: newDevice.adminNumber // <--- SAVE ADMIN NUMBER TO DB
+         admin_number: newDevice.adminNumber
        });
      } catch (e) { console.warn(e); }
   };
@@ -375,10 +376,6 @@ const App: React.FC = () => {
         </button>
 
         <div className="mt-auto flex flex-col items-center gap-4">
-          <div className="text-[10px] text-gray-500 flex flex-col items-center" title="System Heartbeat Active">
-             <Activity size={12} className="text-green-500 animate-pulse" />
-          </div>
-
           <button 
             onClick={() => setActiveView(AppView.SETTINGS)}
             className={`p-3 rounded-xl transition-all ${activeView === AppView.SETTINGS ? 'bg-wa-green text-white shadow-lg' : 'text-gray-400 hover:bg-gray-800'}`}
@@ -427,9 +424,9 @@ const App: React.FC = () => {
                                 <LayoutGrid size={64} className="text-wa-green" />
                             </div>
                         )}
-                        <h1 className="text-3xl font-light text-gray-700 mb-2">WhatsAgent</h1>
+                        <h1 className="text-3xl font-light text-gray-700 mb-2">WhatsAgent (Fonnte)</h1>
                         <p className="text-gray-500 max-w-md text-center text-sm px-4">
-                        Select a conversation to start chatting.
+                        Select a conversation to start chatting via Cloud API.
                         </p>
                     </div>
                 )}
@@ -447,7 +444,6 @@ const App: React.FC = () => {
             </>
           )}
 
-          {/* Wrappers for other views with padding for Bottom Nav */}
           {activeView === AppView.LEADS && (
              <div className="flex-1 h-full overflow-hidden">
                 <LeadsTable devices={devices} /> 
@@ -480,10 +476,9 @@ const App: React.FC = () => {
                  <h1 className="text-2xl font-bold text-gray-800">System Configuration</h1>
                  <IntegrationGuide />
                  <hr className="border-gray-200 my-8" />
-                 <h2 className="text-xl font-bold text-gray-700">Technical Resources</h2>
+                 <h2 className="text-xl font-bold text-gray-700">Database & Webhook</h2>
                  <DatabaseSetup />
                  <BackendLogicViewer />
-                 <RealtimeSetup />
                </div>
              </div>
           )}
@@ -518,13 +513,6 @@ const App: React.FC = () => {
                 className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.DEVICES ? 'text-wa-green' : 'text-gray-400'}`}
             >
                 <Smartphone size={20} />
-                <span className="text-[10px] font-medium">Device</span>
-            </button>
-            <button 
-                onClick={() => setActiveView(AppView.SETTINGS)} 
-                className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.SETTINGS ? 'text-wa-green' : 'text-gray-400'}`}
-            >
-                <Settings size={20} />
                 <span className="text-[10px] font-medium">Config</span>
             </button>
         </div>

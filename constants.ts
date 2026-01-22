@@ -5,15 +5,13 @@ export const MOCK_DEVICES: Device[] = [
     id: 'dev_1',
     name: 'Jasa Konstruksi',
     phoneNumber: '62811111111',
-    color: 'bg-blue-500',
-    status: 'connected'
+    color: 'bg-blue-500'
   },
   {
     id: 'dev_2',
     name: 'Toko Bata Merah',
     phoneNumber: '62822222222',
-    color: 'bg-orange-500',
-    status: 'qr_ready'
+    color: 'bg-orange-500'
   }
 ];
 
