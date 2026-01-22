@@ -5,7 +5,7 @@ import { Button } from './Button';
 import { generateAgentDraft } from '../services/geminiService';
 import { ContactInfo } from './ContactInfo';
 import { ProductPicker } from './ProductPicker';
-import { Send, ToggleLeft, ToggleRight, Sparkles, AlertCircle, BookPlus, ArrowLeft, Paperclip, X, ZapOff } from 'lucide-react';
+import { Send, ToggleLeft, ToggleRight, Sparkles, AlertCircle, BookPlus, ArrowLeft, Paperclip, X, ZapOff, RefreshCcw } from 'lucide-react';
 import { MOCK_DEVICES } from '../constants'; 
 
 interface ChatWindowProps {
@@ -17,6 +17,8 @@ interface ChatWindowProps {
   onToggleBot: (active: boolean) => void;
   onBack?: () => void; 
   isGlobalAiActive?: boolean;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = ({ 
@@ -27,7 +29,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   onEditMessage,
   onToggleBot,
   onBack,
-  isGlobalAiActive = true
+  isGlobalAiActive = true,
+  onRefresh,
+  isRefreshing = false
 }) => {
   const [inputText, setInputText] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -99,6 +103,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2 md:gap-3 shrink-0">
+                    {onRefresh && (
+                        <button 
+                            onClick={onRefresh} 
+                            disabled={isRefreshing}
+                            className={`p-2 text-gray-500 hover:bg-gray-200 rounded-full transition-all ${isRefreshing ? 'animate-spin text-wa-green' : ''}`}
+                            title="Sync / Refresh Messages"
+                        >
+                            <RefreshCcw size={20} />
+                        </button>
+                    )}
                     <button onClick={() => onToggleBot(!contact.isBotActive)} className="text-gray-400 hover:text-gray-600 transition-colors p-1">
                       {contact.isBotActive ? <ToggleRight size={28} className="text-blue-500" /> : <ToggleLeft size={28} className="text-orange-500" />}
                     </button>

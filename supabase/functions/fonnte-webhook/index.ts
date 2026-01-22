@@ -15,7 +15,8 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Helper: Normalize phone numbers for comparison
 // Removes non-digits, converts '08' prefix to '628'
-function normalizePhone(phone: string | number): string {
+function normalizePhone(phone: string | number | undefined | null): string {
+  if (!phone) return "";
   let p = String(phone).replace(/\D/g, ''); // Remove all non-digits
   if (p.startsWith('0')) {
     p = '62' + p.slice(1);
@@ -30,52 +31,69 @@ serve(async (req) => {
     console.log("📥 RECEIVED WEBHOOK:", JSON.stringify(payload)); 
 
     // Robust field extraction
-    let sender = payload.sender || payload.pengirim;
+    // 'sender' is who sent the message. 
+    // 'target' is who receives it (useful if sender is me).
+    let senderRaw = payload.sender || payload.pengirim;
+    let targetRaw = payload.target || payload.penerima;
     const message = payload.message || payload.pesan || payload.text;
     const name = payload.name || "Unknown";
-    const devicePhone = payload.device; // The bot's number receiving the message
+    const devicePhone = payload.device; // The bot's number receiving/sending the message
+    const isFromMe = payload.me === true || payload.fromMe === true;
 
     // Validation
-    if (!sender || !message) {
+    if (!senderRaw || !message) {
       console.log("⚠️ Ignored: Missing sender or message fields");
       return new Response(JSON.stringify({ status: "ignored", reason: "missing_fields" }), { headers: { "Content-Type": "application/json" } });
     }
 
-    sender = String(sender).trim();
+    const sender = normalizePhone(senderRaw);
+    const device = normalizePhone(devicePhone);
+    const target = normalizePhone(targetRaw);
+
+    // 2. Determine Direction & Conversation ID
+    // If sender matches the connected device number, it's an OUTBOUND message (sent from phone)
+    let direction = 'inbound';
+    let conversationId = sender; // Default: chat ID is the sender
+
+    if (sender === device || isFromMe) {
+        direction = 'outbound';
+        // If I sent it, the conversation ID is the TARGET (the person I sent it to)
+        // If target is missing (sometimes Fonnte doesn't send it in webhook), we might lose context.
+        conversationId = target || sender; 
+        console.log(`📤 Detected Outbound Message to ${conversationId}`);
+    } else {
+        console.log(`📥 Detected Inbound Message from ${conversationId}`);
+    }
     
-    // 2. Find Device ID (Smart Matching)
+    // 3. Find Device ID (Smart Matching)
     let deviceId = null;
     if (devicePhone) {
-        // Fetch all devices to perform fuzzy matching in JS
         const { data: allDevices } = await supabase
             .from('devices')
             .select('id, phone_number');
         
         if (allDevices && allDevices.length > 0) {
-            const incomingNorm = normalizePhone(devicePhone);
-            
-            // Find matched device by normalized number
             const matchedDevice = allDevices.find(d => 
-                normalizePhone(d.phone_number) === incomingNorm
+                normalizePhone(d.phone_number) === device
             );
 
             if (matchedDevice) {
                 deviceId = matchedDevice.id;
-                console.log(`✅ Device Matched: ${incomingNorm} -> ID: ${deviceId}`);
-            } else {
-                console.warn(`⚠️ No device found matching: ${devicePhone} (Normalized: ${incomingNorm})`);
             }
         }
     }
 
-    // 3. Ensure Conversation Exists (UPSERT)
-    // We include device_id to organize chats automatically
+    // 4. Ensure Conversation Exists (UPSERT)
+    // Only update name/last_active if it's inbound or a new chat
     const conversationData = {
-      wa_number: sender,
-      name: name,
+      wa_number: conversationId,
+      name: direction === 'inbound' ? name : undefined, // Don't overwrite name with "Unknown" on outbound
       last_active: new Date(),
       ...(deviceId ? { device_id: deviceId } : {}) 
     };
+
+    // Clean undefined keys
+    Object.keys(conversationData).forEach(key => conversationData[key] === undefined && delete conversationData[key]);
 
     const { error: convoError } = await supabase
         .from('conversations')
@@ -83,15 +101,16 @@ serve(async (req) => {
 
     if (convoError) {
         console.error("❌ Failed to upsert conversation:", convoError);
-        throw convoError;
+        // Continue anyway to try inserting message
     }
 
-    // 4. Insert Message
+    // 5. Insert Message
+    // Check if message already exists (deduplication based on timestamp/content rough match could be added here, but ID is usually different)
     const { error: msgError } = await supabase.from('messages').insert({
-      conversation_id: sender,
+      conversation_id: conversationId,
       message: message,
-      direction: 'inbound',
-      status: 'read'
+      direction: direction,
+      status: direction === 'outbound' ? 'sent' : 'read'
     });
 
     if (msgError) {

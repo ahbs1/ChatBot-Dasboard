@@ -25,6 +25,7 @@ const App: React.FC = () => {
   const [allMessages, setAllMessages] = useState<Record<string, Message[]>>({});
   const [ragDocs, setRagDocs] = useState<RAGDocument[]>([]);
   const [loadingInitial, setLoadingInitial] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
   // Master AI Toggle State
   const [isGlobalAiActive, setIsGlobalAiActive] = useState<boolean>(true);
@@ -35,7 +36,10 @@ const App: React.FC = () => {
 
   // --- 1. INITIAL DATA FETCHING ---
   useEffect(() => {
-    const fetchInitialData = async () => {
+    fetchInitialData();
+  }, []);
+
+  const fetchInitialData = async () => {
       setLoadingInitial(true);
       try {
         const { data: dbDevices } = await supabase.from('devices').select('*');
@@ -95,39 +99,63 @@ const App: React.FC = () => {
       } finally {
         setLoadingInitial(false);
       }
-    };
+  };
 
-    fetchInitialData();
-  }, []);
+  const fetchMessagesForContact = async (contactId: string) => {
+      const { data } = await supabase.from('messages')
+          .select('*')
+          .eq('conversation_id', contactId)
+          .order('created_at', { ascending: true });
+      
+      if (data) {
+          const mappedMsgs: Message[] = data.map((m: any) => ({
+              id: m.id.toString(),
+              text: m.message,
+              sender: m.direction === 'inbound' ? SenderType.USER : (m.direction === 'outbound' ? SenderType.AGENT : SenderType.BOT),
+              direction: m.direction === 'inbound' ? Direction.INBOUND : Direction.OUTBOUND,
+              timestamp: new Date(m.created_at),
+              status: m.status
+          }));
+          
+          setAllMessages(prev => ({
+              ...prev,
+              [contactId]: mappedMsgs
+          }));
+      }
+  };
 
   useEffect(() => {
       if (!selectedContactId) return;
       if (allMessages[selectedContactId]) return; 
-
-      const fetchMessages = async () => {
-          const { data } = await supabase.from('messages')
-              .select('*')
-              .eq('conversation_id', selectedContactId)
-              .order('created_at', { ascending: true });
-          
-          if (data) {
-              const mappedMsgs: Message[] = data.map((m: any) => ({
-                  id: m.id.toString(),
-                  text: m.message,
-                  sender: m.direction === 'inbound' ? SenderType.USER : (m.direction === 'outbound' ? SenderType.AGENT : SenderType.BOT),
-                  direction: m.direction === 'inbound' ? Direction.INBOUND : Direction.OUTBOUND,
-                  timestamp: new Date(m.created_at),
-                  status: m.status
-              }));
-              
-              setAllMessages(prev => ({
-                  ...prev,
-                  [selectedContactId]: mappedMsgs
-              }));
-          }
-      };
-      fetchMessages();
+      fetchMessagesForContact(selectedContactId);
   }, [selectedContactId]);
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    if (selectedContactId) {
+        await fetchMessagesForContact(selectedContactId);
+    }
+    // Optional: Refresh contacts too
+    const { data: dbConvos } = await supabase.from('conversations').select('*').order('last_active', { ascending: false });
+    if (dbConvos) {
+        setContacts(prev => {
+            // Update existing contacts with new data but keep local state if needed
+            return dbConvos.map((c: any) => ({
+                 id: c.wa_number,
+                 deviceId: c.device_id || 'unknown',
+                 name: c.name || c.wa_number,
+                 phoneNumber: c.wa_number,
+                 avatar: `https://ui-avatars.com/api/?name=${c.name || 'User'}&background=random`,
+                 lastMessage: '...', // In a real app we'd fetch the last msg too
+                 lastMessageTime: new Date(c.last_active),
+                 unreadCount: 0,
+                 isBotActive: c.mode === 'bot',
+                 tags: []
+             }));
+        });
+    }
+    setTimeout(() => setIsRefreshing(false), 500);
+  };
 
   const handleRealtimeMessage = useCallback((newMsg: Message, contactId: string) => {
     setAllMessages(prev => {
@@ -351,6 +379,8 @@ const App: React.FC = () => {
                         onToggleBot={handleToggleBot}
                         onBack={() => setSelectedContactId(null)} 
                         isGlobalAiActive={isGlobalAiActive}
+                        onRefresh={handleManualRefresh}
+                        isRefreshing={isRefreshing}
                     />
                 ) : (
                     <div className="flex-1 bg-wa-bg flex flex-col items-center justify-center border-b-8 border-wa-green h-full">
