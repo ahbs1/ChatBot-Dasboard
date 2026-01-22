@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Contact, Message, SenderType, RAGDocument, Direction, Product } from '../types';
 import { MessageBubble } from './MessageBubble';
@@ -6,7 +5,7 @@ import { Button } from './Button';
 import { generateAgentDraft } from '../services/geminiService';
 import { ContactInfo } from './ContactInfo';
 import { ProductPicker } from './ProductPicker';
-import { Send, Phone, MoreVertical, ToggleLeft, ToggleRight, Sparkles, AlertCircle, BookPlus, Info, ArrowLeft, Search, Paperclip, X, ZapOff } from 'lucide-react';
+import { Send, ToggleLeft, ToggleRight, Sparkles, AlertCircle, BookPlus, ArrowLeft, Paperclip, X, ZapOff } from 'lucide-react';
 import { MOCK_DEVICES } from '../constants'; 
 
 interface ChatWindowProps {
@@ -79,11 +78,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   const isBotResponding = contact.isBotActive && isGlobalAiActive;
 
   return (
-    <div className="flex h-full w-full overflow-hidden flex-col md:flex-row">
+    <div className="flex h-full w-full overflow-hidden flex-col md:flex-row relative">
         {/* Main Chat Area */}
         <div className="flex-1 flex flex-col h-full bg-wa-bg relative min-w-0 overflow-hidden">
             {/* Header */}
-            <div className="bg-wa-header px-4 py-3 border-b border-gray-300 flex justify-between items-center shadow-sm z-20 h-16 shrink-0">
+            <div className="bg-wa-header px-4 py-3 border-b border-gray-300 flex justify-between items-center shadow-sm z-30 h-16 shrink-0">
                 <div className="flex items-center gap-3 cursor-pointer overflow-hidden" onClick={() => setShowContactInfo(!showContactInfo)}>
                     {onBack && (
                         <button onClick={(e) => { e.stopPropagation(); onBack(); }} className="md:hidden p-1 -ml-2 text-gray-600 hover:bg-gray-200 rounded-full">
@@ -92,26 +91,26 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                     )}
                     <img src={contact.avatar} alt={contact.name} className="w-10 h-10 rounded-full object-cover shrink-0" />
                     <div className="min-w-0">
-                        <h3 className="font-semibold text-gray-800 truncate">{contact.name}</h3>
+                        <h3 className="font-semibold text-gray-800 truncate leading-tight">{contact.name}</h3>
                         <p className={`text-[10px] md:text-xs truncate ${isBotResponding ? 'text-blue-600' : 'text-orange-500'}`}>
                         {isBotResponding ? 'Bot Aktif' : contact.isBotActive ? 'Bot Jeda (Master OFF)' : 'Mode Manual'}
                         </p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-1 md:gap-3 shrink-0">
-                    <div className="flex items-center gap-2 bg-white px-2 py-1.5 rounded-full border shadow-sm">
-                        <button onClick={() => onToggleBot(!contact.isBotActive)} className="text-gray-400 hover:text-gray-600 transition-colors">
-                        {contact.isBotActive ? <ToggleRight size={24} className="text-blue-500" /> : <ToggleLeft size={24} className="text-orange-500" />}
-                        </button>
-                    </div>
-                    <button onClick={() => setShowContactInfo(!showContactInfo)} className="text-gray-600 hover:bg-gray-200 p-2 rounded-full hidden md:block"><MoreVertical size={20} /></button>
+                <div className="flex items-center gap-2 md:gap-3 shrink-0">
+                    <button onClick={() => onToggleBot(!contact.isBotActive)} className="text-gray-400 hover:text-gray-600 transition-colors p-1">
+                      {contact.isBotActive ? <ToggleRight size={28} className="text-blue-500" /> : <ToggleLeft size={28} className="text-orange-500" />}
+                    </button>
+                    <button onClick={() => setShowContactInfo(!showContactInfo)} className="text-gray-600 hover:bg-gray-200 p-2 rounded-full hidden md:block">
+                        <AlertCircle size={20} />
+                    </button>
                 </div>
             </div>
 
             {/* Global Warning */}
             {contact.isBotActive && !isGlobalAiActive && (
-               <div className="bg-orange-600 text-white text-[10px] md:text-[11px] py-1 px-4 flex items-center justify-center gap-2 font-bold z-10 shrink-0">
+               <div className="bg-orange-600 text-white text-[10px] md:text-[11px] py-1 px-4 flex items-center justify-center gap-2 font-bold z-20 shrink-0">
                   <ZapOff size={14} /> MASTER AI MATI. Bot tidak akan menjawab otomatis.
                </div>
             )}
@@ -119,7 +118,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             {/* Messages Area */}
             <div 
                 ref={scrollRef}
-                className="flex-1 overflow-y-auto p-4 space-y-2 relative"
+                className="flex-1 overflow-y-auto p-4 space-y-2 relative scroll-smooth"
                 style={{ backgroundImage: 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")', backgroundRepeat: 'repeat' }}
             >
                 <div className="absolute inset-0 bg-wa-bg opacity-90 -z-10" />
@@ -132,50 +131,48 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             {showProductPicker && <ProductPicker onSelect={handleProductSelect} onClose={() => setShowProductPicker(false)} />}
 
             {/* Input Area */}
-            <div className="shrink-0 bg-wa-header border-t border-gray-300 relative z-20 pb-safe">
+            <div className="shrink-0 bg-wa-header border-t border-gray-300 relative z-40 pb-safe">
                 {isBotResponding ? (
-                    <div className="p-4 flex items-center justify-center gap-2 text-gray-500 bg-gray-100">
-                        <AlertCircle size={18} />
-                        <span className="text-sm">Bot Aktif. Matikan bot untuk membalas manual.</span>
+                    <div className="p-3 flex items-center justify-center gap-2 text-gray-500 bg-gray-100 text-xs text-center">
+                        <AlertCircle size={16} />
+                        <span>Bot Aktif. Matikan bot untuk membalas manual.</span>
                     </div>
                 ) : (
-                    <div className="p-2 md:p-3 flex flex-col gap-1">
-                        <div className="flex justify-between items-center px-2">
-                             <div className="w-4"></div> 
+                    <div className="p-2 md:p-3 flex flex-col gap-1 max-w-5xl mx-auto w-full">
+                        <div className="flex justify-center items-center">
                             <label className={`flex items-center gap-2 text-[10px] md:text-xs cursor-pointer transition-colors ${teachBot ? 'text-green-600 font-semibold' : 'text-gray-400'}`}>
                                 <input type="checkbox" checked={teachBot} onChange={(e) => setTeachBot(e.target.checked)} className="rounded text-green-600 w-3 h-3"/>
                                 <span>Ajari Bot</span>
                             </label>
                         </div>
 
-                        <div className="flex gap-2 items-end max-w-4xl mx-auto w-full">
-                            <button onClick={() => { setShowAttachments(!showAttachments); setShowProductPicker(false); }} className={`p-2 rounded-full mb-1 ${showAttachments ? 'bg-gray-200 text-gray-800' : 'text-gray-500'}`}>
+                        <div className="flex gap-2 items-end w-full">
+                            <button onClick={() => { setShowAttachments(!showAttachments); setShowProductPicker(false); }} className={`p-2 rounded-full mb-1 flex-shrink-0 ${showAttachments ? 'bg-gray-200 text-gray-800' : 'text-gray-500'}`}>
                                  {showAttachments ? <X size={24} /> : <Paperclip size={24} />}
                             </button>
 
-                            <div className="flex-1 bg-white rounded-2xl border border-gray-300 shadow-sm flex items-end overflow-hidden">
+                            <div className="flex-1 bg-white rounded-2xl border border-gray-300 shadow-sm flex items-end overflow-hidden min-h-[44px]">
                                 <textarea
                                     value={inputText}
                                     onChange={(e) => setInputText(e.target.value)}
                                     onKeyDown={handleKeyDown}
                                     placeholder="Ketik pesan..."
-                                    className="w-full max-h-32 p-3 bg-transparent border-none focus:ring-0 resize-none text-sm"
+                                    className="w-full max-h-32 p-3 bg-transparent border-none focus:ring-0 resize-none text-sm leading-tight"
                                     rows={1}
-                                    style={{ minHeight: '44px' }}
                                 />
-                                <button onClick={handleGenerateDraft} disabled={isGenerating} className="m-2 p-1.5 text-purple-600 hover:bg-purple-50 rounded-full">
+                                <button onClick={handleGenerateDraft} disabled={isGenerating} className="m-2 p-1.5 text-purple-600 hover:bg-purple-50 rounded-full flex-shrink-0">
                                      <Sparkles size={18} className={isGenerating ? "animate-pulse" : ""} />
                                 </button>
                             </div>
                             
-                            <button onClick={handleSend} disabled={!inputText.trim()} className="mb-1 p-3 bg-wa-green text-white rounded-full shadow-md">
+                            <button onClick={handleSend} disabled={!inputText.trim()} className="mb-1 p-3 bg-wa-green text-white rounded-full shadow-md flex-shrink-0 transition-transform active:scale-95">
                                 <Send size={20} />
                             </button>
                         </div>
 
                         {showAttachments && !showProductPicker && (
                             <div className="absolute bottom-full left-4 mb-2 bg-white rounded-lg shadow-xl border border-gray-100 flex flex-col p-2 gap-1 animate-in slide-in-from-bottom-2 duration-200">
-                                <button onClick={() => setShowProductPicker(true)} className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 rounded-md text-gray-700 text-sm">
+                                <button onClick={() => setShowProductPicker(true)} className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 rounded-md text-gray-700 text-sm whitespace-nowrap">
                                     <div className="bg-purple-500 text-white p-2 rounded-full"><BookPlus size={16}/></div>
                                     Katalog Produk
                                 </button>
@@ -188,7 +185,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
         {/* Right Sidebar: Contact Info */}
         {showContactInfo && (
-            <div className="hidden md:block h-full shadow-xl z-30 shrink-0">
+            <div className="fixed md:relative inset-0 md:inset-auto h-full shadow-xl z-50 md:z-30 shrink-0 bg-white md:block">
                 <ContactInfo contact={contact} device={device} onClose={() => setShowContactInfo(false)} />
             </div>
         )}

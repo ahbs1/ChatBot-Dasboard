@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
-import { Contact, Message, SenderType, AppView, RAGDocument, Direction, Device, Product, GlobalSettings } from './types';
+import { Contact, Message, SenderType, AppView, RAGDocument, Direction, Device, Product } from './types';
 import { MOCK_CONTACTS, MOCK_MESSAGES, MOCK_RAG_DOCS, MOCK_DEVICES } from './constants';
 import { ChatList } from './components/ChatList';
 import { ChatWindow } from './components/ChatWindow';
@@ -39,7 +38,6 @@ const App: React.FC = () => {
     const fetchInitialData = async () => {
       setLoadingInitial(true);
       try {
-        // A. Fetch Devices
         const { data: dbDevices } = await supabase.from('devices').select('*');
         if (dbDevices && dbDevices.length > 0) {
             setDevices(dbDevices.map((d:any) => ({
@@ -55,13 +53,11 @@ const App: React.FC = () => {
             setDevices(MOCK_DEVICES); 
         }
 
-        // B. Fetch Global Settings (Master Toggle)
         const { data: dbSettings } = await supabase.from('system_settings').select('*').eq('key', 'is_ai_enabled').single();
         if (dbSettings) {
             setIsGlobalAiActive(dbSettings.value);
         }
 
-        // C. Fetch Conversations (Contacts)
         const { data: dbConvos } = await supabase.from('conversations').select('*').order('last_active', { ascending: false });
         if (dbConvos && dbConvos.length > 0) {
              const mappedContacts: Contact[] = dbConvos.map((c: any) => ({
@@ -82,7 +78,6 @@ const App: React.FC = () => {
              setAllMessages(MOCK_MESSAGES);
         }
         
-        // D. Fetch RAG Docs
         const { data: dbDocs } = await supabase.from('knowledge_base').select('*').limit(50);
         if (dbDocs) {
             setRagDocs(dbDocs.map((d: any) => ({
@@ -105,7 +100,6 @@ const App: React.FC = () => {
     fetchInitialData();
   }, []);
 
-  // Fetch messages when selecting a contact
   useEffect(() => {
       if (!selectedContactId) return;
       if (allMessages[selectedContactId]) return; 
@@ -135,7 +129,6 @@ const App: React.FC = () => {
       fetchMessages();
   }, [selectedContactId]);
 
-  // Realtime Integration
   const handleRealtimeMessage = useCallback((newMsg: Message, contactId: string) => {
     setAllMessages(prev => {
       const existing = prev[contactId] || [];
@@ -283,13 +276,6 @@ const App: React.FC = () => {
     try {
         await supabase.from('messages').update({ message: newText }).eq('id', messageId);
     } catch (e) { console.error(e); }
-    const messages = allMessages[selectedContactId];
-    const msgIndex = messages.findIndex(m => m.id === messageId);
-    const lastUserMsg = [...messages.slice(0, msgIndex)].reverse().find(m => m.direction === Direction.INBOUND);
-    if (lastUserMsg) {
-      let targetDeviceId = selectedContact.deviceId;
-      if (targetDeviceId && targetDeviceId !== 'unknown') await trainBotWithPair(lastUserMsg.text, newText, targetDeviceId);
-    }
   };
 
   const handleToggleBot = async (isActive: boolean) => {
@@ -322,10 +308,10 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-gray-100 font-sans antialiased overflow-hidden">
+    <div className="flex h-dvh bg-gray-100 font-sans antialiased overflow-hidden">
       
       {/* Sidebar Navigation - DESKTOP ONLY */}
-      <div className="hidden md:flex w-16 bg-gray-900 text-white flex-col items-center py-6 gap-6 z-20 shrink-0">
+      <div className="hidden md:flex w-16 bg-gray-900 text-white flex-col items-center py-6 gap-6 z-30 shrink-0">
         <div className="mb-4">
            <LayoutGrid className="text-wa-light" size={28} />
         </div>
@@ -373,8 +359,8 @@ const App: React.FC = () => {
                         ) : (
                             <div className="bg-white p-8 rounded-full shadow-lg mb-6"><LayoutGrid size={64} className="text-wa-green" /></div>
                         )}
-                        <h1 className="text-3xl font-light text-gray-700 mb-2">WhatsAgent (Fonnte)</h1>
-                        <p className="text-gray-500 max-w-md text-center text-sm px-4">Select a conversation to start chatting.</p>
+                        <h1 className="text-3xl font-light text-gray-700 mb-2">WhatsAgent</h1>
+                        <p className="text-gray-500 max-w-md text-center text-sm px-4">Pilih chat untuk memulai percakapan.</p>
                     </div>
                 )}
               </div>
@@ -397,7 +383,7 @@ const App: React.FC = () => {
         {/* Bottom Navigation Bar - MOBILE ONLY - HIDDEN WHEN CHAT IS OPEN */}
         {!selectedContactId && (
             <div className="md:hidden bg-white border-t border-gray-200 flex justify-around items-center h-16 shrink-0 z-30 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] pb-safe">
-                <button onClick={() => { setActiveView(AppView.DASHBOARD); setSelectedContactId(null); }} className={`p-2 flex flex-col items-center gap-1 w-full ${activeView === AppView.DASHBOARD ? 'text-wa-green' : 'text-gray-400'}`}><MessageSquare size={20} /><span className="text-[10px] font-medium">Chats</span></button>
+                <button onClick={() => setActiveView(AppView.DASHBOARD)} className={`p-2 flex flex-col items-center gap-1 w-full ${activeView === AppView.DASHBOARD ? 'text-wa-green' : 'text-gray-400'}`}><MessageSquare size={20} /><span className="text-[10px] font-medium">Chats</span></button>
                 <button onClick={() => setActiveView(AppView.LEADS)} className={`p-2 flex flex-col items-center gap-1 w-full ${activeView === AppView.LEADS ? 'text-wa-green' : 'text-gray-400'}`}><Users size={20} /><span className="text-[10px] font-medium">Leads</span></button>
                 <button onClick={() => setActiveView(AppView.KNOWLEDGE)} className={`p-2 flex flex-col items-center gap-1 w-full ${activeView === AppView.KNOWLEDGE ? 'text-wa-green' : 'text-gray-400'}`}><BookOpen size={20} /><span className="text-[10px] font-medium">RAG</span></button>
                 <button onClick={() => setActiveView(AppView.DEVICES)} className={`p-2 flex flex-col items-center gap-1 w-full ${activeView === AppView.DEVICES ? 'text-wa-green' : 'text-gray-400'}`}><Smartphone size={20} /><span className="text-[10px] font-medium">Config</span></button>
