@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
-import { Contact, Message, SenderType, AppView, RAGDocument, Direction, Device } from './types';
+import { Contact, Message, SenderType, AppView, RAGDocument, Direction, Device, Product, GlobalSettings } from './types';
 import { MOCK_CONTACTS, MOCK_MESSAGES, MOCK_RAG_DOCS, MOCK_DEVICES } from './constants';
 import { ChatList } from './components/ChatList';
 import { ChatWindow } from './components/ChatWindow';
@@ -26,6 +27,9 @@ const App: React.FC = () => {
   const [ragDocs, setRagDocs] = useState<RAGDocument[]>([]);
   const [loadingInitial, setLoadingInitial] = useState(true);
   
+  // NEW: Global AI Master Switch
+  const [isGlobalAiActive, setIsGlobalAiActive] = useState<boolean>(true);
+  
   // Computed
   const selectedContact = contacts.find(c => c.id === selectedContactId);
   const currentMessages = selectedContactId ? (allMessages[selectedContactId] || []) : [];
@@ -43,7 +47,7 @@ const App: React.FC = () => {
                 name: d.name,
                 phoneNumber: d.phone_number,
                 color: d.color,
-                fonnteToken: d.fonnte_token, // Load Token
+                fonnteToken: d.fonnte_token, 
                 alertEmail: d.alert_email,
                 adminNumber: d.admin_number
             })));
@@ -51,7 +55,13 @@ const App: React.FC = () => {
             setDevices(MOCK_DEVICES); 
         }
 
-        // B. Fetch Conversations (Contacts)
+        // B. Fetch System Settings (Global Toggle)
+        const { data: dbSettings } = await supabase.from('system_settings').select('*').eq('key', 'is_ai_enabled').single();
+        if (dbSettings) {
+            setIsGlobalAiActive(dbSettings.value);
+        }
+
+        // C. Fetch Conversations (Contacts)
         const { data: dbConvos } = await supabase.from('conversations').select('*').order('last_active', { ascending: false });
         if (dbConvos && dbConvos.length > 0) {
              const mappedContacts: Contact[] = dbConvos.map((c: any) => ({
@@ -72,7 +82,7 @@ const App: React.FC = () => {
              setAllMessages(MOCK_MESSAGES);
         }
         
-        // C. Fetch RAG Docs
+        // D. Fetch RAG Docs
         const { data: dbDocs } = await supabase.from('knowledge_base').select('*').limit(50);
         if (dbDocs) {
             setRagDocs(dbDocs.map((d: any) => ({
@@ -98,7 +108,7 @@ const App: React.FC = () => {
   // Fetch messages when selecting a contact
   useEffect(() => {
       if (!selectedContactId) return;
-      if (allMessages[selectedContactId]) return; // Already loaded
+      if (allMessages[selectedContactId]) return; 
 
       const fetchMessages = async () => {
           const { data } = await supabase.from('messages')
@@ -147,7 +157,6 @@ const App: React.FC = () => {
 
     setContacts(prev => {
         const exists = prev.find(c => c.id === contactId);
-        // If contact exists, just update it.
         if (exists) {
             return prev.map(c => 
                 c.id === contactId 
@@ -160,11 +169,9 @@ const App: React.FC = () => {
                   : c
               ).sort((a, b) => b.lastMessageTime.getTime() - a.lastMessageTime.getTime());
         } else {
-            // If contact does NOT exist (new incoming chat from DB Realtime), add it.
-            // Note: We don't have the device_id in the message payload usually, but we can try to reload or default.
             return [{
                 id: contactId,
-                deviceId: 'unknown', // Will be updated on refresh or if we listen to conversation updates
+                deviceId: 'unknown', 
                 name: contactId,
                 phoneNumber: contactId,
                 avatar: `https://ui-avatars.com/api/?name=${contactId}`,
@@ -212,16 +219,13 @@ const App: React.FC = () => {
       }
   };
 
-  const handleSendMessage = async (text: string, sender: SenderType, teachBot: boolean) => {
+  const handleSendMessage = async (text: string, sender: SenderType, teachBot: boolean, attachment?: Product) => {
     if (!selectedContactId || !selectedContact) return;
 
-    // 1. Get Device Token
-    // FIX: If deviceId is unknown, but user only has ONE device, default to that one.
     let targetDeviceId = selectedContact.deviceId;
     
     if ((!targetDeviceId || targetDeviceId === 'unknown') && devices.length === 1) {
         targetDeviceId = devices[0].id;
-        // Optionally update the conversation in DB so we don't guess next time
         supabase.from('conversations').update({ device_id: targetDeviceId }).eq('wa_number', selectedContactId).then();
     }
 
@@ -233,7 +237,6 @@ const App: React.FC = () => {
     }
 
     try {
-      // 2. Save to Supabase (Optimistic UI update happens after DB success)
       const { data, error } = await supabase.from('messages').insert({
         conversation_id: selectedContactId,
         message: text,
@@ -247,6 +250,7 @@ const App: React.FC = () => {
           const newMessage: Message = {
             id: data.id.toString(),
             text: text,
+            imageUrl: attachment?.image, 
             sender: sender,
             direction: Direction.OUTBOUND,
             timestamp: new Date(data.created_at),
@@ -259,10 +263,12 @@ const App: React.FC = () => {
           }));
           updateContactLastMessage(selectedContactId, text);
 
-          // 3. CALL FONNTE API
           const formData = new FormData();
           formData.append('target', selectedContactId);
-          formData.append('message', text);
+          formData.append('message', text); 
+          if (attachment?.image) {
+              formData.append('url', attachment.image);
+          }
 
           fetch('https://api.fonnte.com/send', {
               method: 'POST',
@@ -272,7 +278,6 @@ const App: React.FC = () => {
               body: formData
           }).then(res => res.json())
             .then(res => {
-                console.log("Fonnte Response:", res);
                 if (!res.status) console.error("Fonnte Error", res);
             })
             .catch(err => console.error("Fonnte Network Error", err));
@@ -309,7 +314,6 @@ const App: React.FC = () => {
     const historyBefore = messages.slice(0, msgIndex);
     const lastUserMsg = [...historyBefore].reverse().find(m => m.direction === Direction.INBOUND);
     if (lastUserMsg) {
-      // Need device ID for training
       let targetDeviceId = selectedContact.deviceId;
       if ((!targetDeviceId || targetDeviceId === 'unknown') && devices.length === 1) targetDeviceId = devices[0].id;
       
@@ -327,6 +331,16 @@ const App: React.FC = () => {
     } catch (err) { console.error(err); }
   };
 
+  // NEW: Handle Global Master Toggle
+  const handleToggleGlobalAi = async (active: boolean) => {
+    setIsGlobalAiActive(active);
+    try {
+      await supabase.from('system_settings').upsert({ key: 'is_ai_enabled', value: active }, { onConflict: 'key' });
+    } catch (err) {
+      console.error("Failed to save global setting:", err);
+    }
+  };
+
   const handleAddDocuments = (newDocs: RAGDocument[]) => {
     setRagDocs(prev => [...newDocs, ...prev]);
   };
@@ -339,7 +353,7 @@ const App: React.FC = () => {
          name: newDevice.name,
          phone_number: newDevice.phoneNumber,
          color: newDevice.color,
-         fonnte_token: newDevice.fonnteToken, // Save Token
+         fonnte_token: newDevice.fonnteToken, 
          alert_email: newDevice.alertEmail,
          admin_number: newDevice.adminNumber
        });
@@ -417,6 +431,8 @@ const App: React.FC = () => {
                     devices={devices}
                     selectedContactId={selectedContactId} 
                     onSelectContact={(c) => setSelectedContactId(c.id)} 
+                    isGlobalAiActive={isGlobalAiActive}
+                    onToggleGlobalAi={handleToggleGlobalAi}
                 />
               </div>
 
@@ -430,7 +446,8 @@ const App: React.FC = () => {
                         onSendMessage={handleSendMessage}
                         onEditMessage={handleEditMessage} 
                         onToggleBot={handleToggleBot}
-                        onBack={() => setSelectedContactId(null)} // Mobile: Go back to list
+                        onBack={() => setSelectedContactId(null)} 
+                        isGlobalAiActive={isGlobalAiActive}
                     />
                 ) : (
                     <div className="flex-1 bg-wa-bg flex flex-col items-center justify-center border-b-8 border-wa-green h-full">
@@ -503,36 +520,38 @@ const App: React.FC = () => {
         </div>
 
         {/* Bottom Navigation Bar - MOBILE ONLY */}
-        <div className="md:hidden bg-white border-t border-gray-200 flex justify-around items-center h-16 shrink-0 z-30 fixed bottom-0 left-0 right-0 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] pb-safe">
-            <button 
-                onClick={() => { setActiveView(AppView.DASHBOARD); setSelectedContactId(null); }} 
-                className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.DASHBOARD ? 'text-wa-green' : 'text-gray-400'}`}
-            >
-                <MessageSquare size={20} />
-                <span className="text-[10px] font-medium">Chats</span>
-            </button>
-            <button 
-                onClick={() => setActiveView(AppView.LEADS)} 
-                className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.LEADS ? 'text-wa-green' : 'text-gray-400'}`}
-            >
-                <Users size={20} />
-                <span className="text-[10px] font-medium">Leads</span>
-            </button>
-            <button 
-                onClick={() => setActiveView(AppView.KNOWLEDGE)} 
-                className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.KNOWLEDGE ? 'text-wa-green' : 'text-gray-400'}`}
-            >
-                <BookOpen size={20} />
-                <span className="text-[10px] font-medium">RAG</span>
-            </button>
-            <button 
-                onClick={() => setActiveView(AppView.DEVICES)} 
-                className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.DEVICES ? 'text-wa-green' : 'text-gray-400'}`}
-            >
-                <Smartphone size={20} />
-                <span className="text-[10px] font-medium">Config</span>
-            </button>
-        </div>
+        {!selectedContactId && (
+            <div className="md:hidden bg-white border-t border-gray-200 flex justify-around items-center h-16 shrink-0 z-30 fixed bottom-0 left-0 right-0 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] pb-safe">
+                <button 
+                    onClick={() => { setActiveView(AppView.DASHBOARD); setSelectedContactId(null); }} 
+                    className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.DASHBOARD ? 'text-wa-green' : 'text-gray-400'}`}
+                >
+                    <MessageSquare size={20} />
+                    <span className="text-[10px] font-medium">Chats</span>
+                </button>
+                <button 
+                    onClick={() => setActiveView(AppView.LEADS)} 
+                    className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.LEADS ? 'text-wa-green' : 'text-gray-400'}`}
+                >
+                    <Users size={20} />
+                    <span className="text-[10px] font-medium">Leads</span>
+                </button>
+                <button 
+                    onClick={() => setActiveView(AppView.KNOWLEDGE)} 
+                    className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.KNOWLEDGE ? 'text-wa-green' : 'text-gray-400'}`}
+                >
+                    <BookOpen size={20} />
+                    <span className="text-[10px] font-medium">RAG</span>
+                </button>
+                <button 
+                    onClick={() => setActiveView(AppView.DEVICES)} 
+                    className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.DEVICES ? 'text-wa-green' : 'text-gray-400'}`}
+                >
+                    <Smartphone size={20} />
+                    <span className="text-[10px] font-medium">Config</span>
+                </button>
+            </div>
+        )}
 
       </div>
     </div>

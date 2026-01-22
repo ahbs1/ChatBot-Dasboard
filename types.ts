@@ -15,7 +15,7 @@ export interface Device {
   name: string;        // Friendly Name (e.g., "Toko Bata")
   phoneNumber: string; // The WA Number linked to Fonnte
   color: string;       // UI Badge Color
-  fonnteToken?: string; // <--- NEW: Fonnte API Token
+  fonnteToken?: string; // Fonnte API Token
   alertEmail?: string; 
   adminNumber?: string;
 }
@@ -32,6 +32,7 @@ export interface Lead {
 export interface Message {
   id: string;
   text: string;
+  imageUrl?: string; 
   sender: SenderType; 
   direction: Direction;
   timestamp: Date;
@@ -47,8 +48,12 @@ export interface Contact {
   lastMessage: string;
   lastMessageTime: Date;
   unreadCount: number;
-  isBotActive: boolean;
+  isBotActive: boolean; // Individual setting
   tags: string[];
+}
+
+export interface GlobalSettings {
+  isAiEnabled: boolean;
 }
 
 export interface RAGDocument {
@@ -58,6 +63,14 @@ export interface RAGDocument {
   content: string;
   similarity: number;
   metadata?: Record<string, any>;
+}
+
+export interface Product {
+    id: string;
+    name: string;
+    price: number;
+    description: string;
+    image: string;
 }
 
 export enum AppView {
@@ -75,19 +88,10 @@ export interface DBDevice {
   name: string;
   phone_number: string;
   color: string;
-  fonnte_token?: string; // <--- NEW DB Column
+  fonnte_token?: string;
   alert_email?: string; 
   admin_number?: string;
   created_at: string;
-}
-
-export interface DBLead {
-  id: number;
-  device_id: string;
-  phone_number: string;
-  name: string;
-  address: string;
-  updated_at: string;
 }
 
 export interface DBConversation {
@@ -107,17 +111,8 @@ export interface DBMessage {
   created_at: string;
 }
 
-export interface DBKnowledgeBase {
-  id: number;
-  device_id: string;
-  content: string;
-  metadata: Record<string, any>;
-  embedding: number[];
-}
-
-export interface DBSystemStatus {
-  id: string; 
-  status: 'connecting' | 'connected' | 'qr_ready' | 'disconnected';
-  qr_code?: string;
-  updated_at: string;
+export interface DBSystemSettings {
+  id: string;
+  key: string;
+  value: any;
 }

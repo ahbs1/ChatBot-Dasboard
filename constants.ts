@@ -1,4 +1,5 @@
-import { Contact, SenderType, Message, RAGDocument, Direction, Device } from './types';
+
+import { Contact, SenderType, Message, RAGDocument, Direction, Device, Product } from './types';
 
 export const MOCK_DEVICES: Device[] = [
   {
@@ -13,6 +14,37 @@ export const MOCK_DEVICES: Device[] = [
     phoneNumber: '62822222222',
     color: 'bg-orange-500'
   }
+];
+
+export const MOCK_PRODUCTS: Product[] = [
+    {
+        id: 'p1',
+        name: 'Bata Merah Jumbo',
+        price: 1500,
+        description: 'Bata merah kualitas super, ukuran jumbo, tahan bakar.',
+        image: 'https://images.unsplash.com/photo-1590074251296-6e542ebc9af2?w=400&h=400&fit=crop'
+    },
+    {
+        id: 'p2',
+        name: 'Semen Tiga Roda 50kg',
+        price: 65000,
+        description: 'Semen portland composite untuk bangunan kokoh.',
+        image: 'https://images.unsplash.com/photo-1518709414768-a88986a455b1?w=400&h=400&fit=crop'
+    },
+    {
+        id: 'p3',
+        name: 'Pasir Beton (1 Truk)',
+        price: 1200000,
+        description: 'Pasir beton hitam kualitas sungai, bebas lumpur.',
+        image: 'https://images.unsplash.com/photo-1623956420524-76e932ba0646?w=400&h=400&fit=crop'
+    },
+    {
+        id: 'p4',
+        name: 'Paket Konsultasi',
+        price: 500000,
+        description: 'Konsultasi RAB dan Desain Rumah (1 Jam).',
+        image: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=400&h=400&fit=crop'
+    }
 ];
 
 export const MOCK_CONTACTS: Contact[] = [

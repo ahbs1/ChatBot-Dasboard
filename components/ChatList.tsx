@@ -1,19 +1,28 @@
+
 import React, { useState } from 'react';
 import { Contact, Device } from '../types';
-import { Bot, User, Search, Filter, Smartphone } from 'lucide-react';
+import { Bot, User, Search, Smartphone, Zap, ZapOff, AlertCircle } from 'lucide-react';
 
 interface ChatListProps {
   contacts: Contact[];
   devices: Device[];
   selectedContactId: string | null;
   onSelectContact: (contact: Contact) => void;
+  isGlobalAiActive: boolean;
+  onToggleGlobalAi: (active: boolean) => void;
 }
 
-export const ChatList: React.FC<ChatListProps> = ({ contacts, devices, selectedContactId, onSelectContact }) => {
+export const ChatList: React.FC<ChatListProps> = ({ 
+  contacts, 
+  devices, 
+  selectedContactId, 
+  onSelectContact,
+  isGlobalAiActive,
+  onToggleGlobalAi
+}) => {
   const [filterDeviceId, setFilterDeviceId] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // 1. Filter Logic
   const filteredContacts = contacts.filter(c => {
     const matchesDevice = filterDeviceId === 'all' || c.deviceId === filterDeviceId;
     const matchesSearch = c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -21,19 +30,33 @@ export const ChatList: React.FC<ChatListProps> = ({ contacts, devices, selectedC
     return matchesDevice && matchesSearch;
   });
 
-  // Helper to get device info
   const getDevice = (id: string) => devices.find(d => d.id === id);
 
   return (
     <div className="flex flex-col h-full bg-white border-r border-gray-200 w-full md:w-80 lg:w-96">
-      {/* Header */}
-      <div className="p-4 bg-wa-header border-b sticky top-0 z-10 space-y-3">
-        <div className="flex justify-between items-center">
+      {/* Global Bot Toggle Header */}
+      <div className={`p-4 transition-colors border-b ${isGlobalAiActive ? 'bg-wa-header' : 'bg-orange-50'}`}>
+        <div className="flex justify-between items-center mb-3">
            <h2 className="font-bold text-gray-700 text-lg">Chats</h2>
-           <span className="text-xs text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">
-             {filteredContacts.length}
-           </span>
+           <div className="flex items-center gap-2">
+              <span className={`text-[10px] font-bold uppercase tracking-wider ${isGlobalAiActive ? 'text-green-600' : 'text-orange-600'}`}>
+                AI Master: {isGlobalAiActive ? 'ON' : 'OFF'}
+              </span>
+              <button 
+                onClick={() => onToggleGlobalAi(!isGlobalAiActive)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${isGlobalAiActive ? 'bg-wa-green' : 'bg-gray-300'}`}
+              >
+                <span className={`${isGlobalAiActive ? 'translate-x-6' : 'translate-x-1'} inline-block h-4 w-4 transform rounded-full bg-white transition-transform`} />
+              </button>
+           </div>
         </div>
+
+        {!isGlobalAiActive && (
+          <div className="flex items-center gap-2 text-orange-700 bg-orange-100 p-2 rounded-md mb-3 text-[11px] font-medium border border-orange-200 animate-pulse">
+            <ZapOff size={14} />
+            <span>AI Bot is temporarily disabled for all numbers.</span>
+          </div>
+        )}
         
         {/* Device Filter */}
         <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
@@ -88,6 +111,9 @@ export const ChatList: React.FC<ChatListProps> = ({ contacts, devices, selectedC
         ) : (
           filteredContacts.map((contact) => {
             const dev = getDevice(contact.deviceId);
+            // Effective Bot status: depends on individual AND global toggle
+            const isEffectiveBot = contact.isBotActive && isGlobalAiActive;
+
             return (
               <div 
                 key={contact.id}
@@ -104,11 +130,14 @@ export const ChatList: React.FC<ChatListProps> = ({ contacts, devices, selectedC
                     className="w-12 h-12 rounded-full object-cover"
                   />
                   {contact.isBotActive ? (
-                    <div className="absolute -bottom-1 -right-1 bg-blue-500 text-white rounded-full p-1 border-2 border-white" title="Bot Active">
+                    <div 
+                      className={`absolute -bottom-1 -right-1 text-white rounded-full p-1 border-2 border-white ${isGlobalAiActive ? 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]' : 'bg-gray-400 opacity-80'}`} 
+                      title={isGlobalAiActive ? "Bot Active" : "Bot Disabled by Master Switch"}
+                    >
                       <Bot size={10} />
                     </div>
                   ) : (
-                    <div className="absolute -bottom-1 -right-1 bg-wa-green text-white rounded-full p-1 border-2 border-white" title="Human Taken Over">
+                    <div className="absolute -bottom-1 -right-1 bg-wa-green text-white rounded-full p-1 border-2 border-white shadow-sm" title="Human Taken Over">
                       <User size={10} />
                     </div>
                   )}
@@ -125,7 +154,6 @@ export const ChatList: React.FC<ChatListProps> = ({ contacts, devices, selectedC
                     </span>
                   </div>
                   
-                  {/* Device Badge (Unified Inbox View) */}
                   <div className="flex justify-between items-center">
                     <p className="text-sm text-gray-600 truncate max-w-[140px]">
                       {contact.lastMessage}
@@ -138,7 +166,6 @@ export const ChatList: React.FC<ChatListProps> = ({ contacts, devices, selectedC
                   </div>
                   
                   <div className="flex items-center justify-between mt-1.5">
-                    {/* Device Label */}
                     {dev && (
                        <span className={`text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1 ${dev.color} bg-opacity-10 text-gray-700`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${dev.color}`}></span>
