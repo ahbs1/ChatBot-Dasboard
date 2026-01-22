@@ -27,7 +27,7 @@ const App: React.FC = () => {
   const [ragDocs, setRagDocs] = useState<RAGDocument[]>([]);
   const [loadingInitial, setLoadingInitial] = useState(true);
   
-  // NEW: Global AI Master Switch
+  // Master AI Toggle State
   const [isGlobalAiActive, setIsGlobalAiActive] = useState<boolean>(true);
   
   // Computed
@@ -55,7 +55,7 @@ const App: React.FC = () => {
             setDevices(MOCK_DEVICES); 
         }
 
-        // B. Fetch System Settings (Global Toggle)
+        // B. Fetch Global Settings (Master Toggle)
         const { data: dbSettings } = await supabase.from('system_settings').select('*').eq('key', 'is_ai_enabled').single();
         if (dbSettings) {
             setIsGlobalAiActive(dbSettings.value);
@@ -135,24 +135,17 @@ const App: React.FC = () => {
       fetchMessages();
   }, [selectedContactId]);
 
-
-  // --- Realtime Integration ---
-  
+  // Realtime Integration
   const handleRealtimeMessage = useCallback((newMsg: Message, contactId: string) => {
     setAllMessages(prev => {
       const existing = prev[contactId] || [];
       const index = existing.findIndex(m => m.id === newMsg.id);
-      
       if (index !== -1) {
           const updated = [...existing];
           updated[index] = newMsg;
           return { ...prev, [contactId]: updated };
       }
-      
-      return {
-        ...prev,
-        [contactId]: [...existing, newMsg]
-      };
+      return { ...prev, [contactId]: [...existing, newMsg] };
     });
 
     setContacts(prev => {
@@ -189,9 +182,13 @@ const App: React.FC = () => {
     setContacts(prev => prev.map(c => c.id === contactId ? { ...c, ...updates } : c));
   }, []);
 
-  useRealtime(handleRealtimeMessage, handleRealtimeContactUpdate);
+  const handleRealtimeSettingsUpdate = useCallback((key: string, value: any) => {
+    if (key === 'is_ai_enabled') {
+        setIsGlobalAiActive(value);
+    }
+  }, []);
 
-  // ----------------------------
+  useRealtime(handleRealtimeMessage, handleRealtimeContactUpdate, handleRealtimeSettingsUpdate);
 
   const updateContactLastMessage = (contactId: string, text: string) => {
     setContacts(prev => prev.map(c => 
@@ -205,7 +202,6 @@ const App: React.FC = () => {
       try {
         const newKnowledgeContent = `Q: ${question}\nA: ${answer}`;
         const embedding = await generateEmbedding(newKnowledgeContent);
-
         if (embedding) {
           await supabase.from('knowledge_base').insert({
             device_id: deviceId,
@@ -221,18 +217,14 @@ const App: React.FC = () => {
 
   const handleSendMessage = async (text: string, sender: SenderType, teachBot: boolean, attachment?: Product) => {
     if (!selectedContactId || !selectedContact) return;
-
     let targetDeviceId = selectedContact.deviceId;
-    
     if ((!targetDeviceId || targetDeviceId === 'unknown') && devices.length === 1) {
         targetDeviceId = devices[0].id;
         supabase.from('conversations').update({ device_id: targetDeviceId }).eq('wa_number', selectedContactId).then();
     }
-
     const device = devices.find(d => d.id === targetDeviceId);
-
     if (!device?.fonnteToken) {
-        alert("Error: No Fonnte Token configured for this device. Please check Device Manager.");
+        alert("Error: No Fonnte Token configured.");
         return;
     }
 
@@ -241,11 +233,11 @@ const App: React.FC = () => {
         conversation_id: selectedContactId,
         message: text,
         direction: 'outbound',
-        status: 'sent' 
+        status: 'sent',
+        image_url: attachment?.image || null
       }).select().single();
 
       if (error) throw error;
-
       if (data) {
           const newMessage: Message = {
             id: data.id.toString(),
@@ -256,44 +248,29 @@ const App: React.FC = () => {
             timestamp: new Date(data.created_at),
             status: 'sent'
           };
-
           setAllMessages(prev => ({
             ...prev,
             [selectedContactId]: [...(prev[selectedContactId] || []), newMessage]
           }));
           updateContactLastMessage(selectedContactId, text);
-
           const formData = new FormData();
           formData.append('target', selectedContactId);
           formData.append('message', text); 
-          if (attachment?.image) {
-              formData.append('url', attachment.image);
-          }
-
+          if (attachment?.image) formData.append('url', attachment.image);
           fetch('https://api.fonnte.com/send', {
               method: 'POST',
-              headers: {
-                  'Authorization': device.fonnteToken
-              },
+              headers: { 'Authorization': device.fonnteToken },
               body: formData
-          }).then(res => res.json())
-            .then(res => {
-                if (!res.status) console.error("Fonnte Error", res);
-            })
-            .catch(err => console.error("Fonnte Network Error", err));
+          }).then(res => res.json()).catch(err => console.error(err));
       }
-
     } catch (err) {
-      console.error("Failed to insert message:", err);
-      alert("Failed to save message to database. Check connection.");
+      console.error(err);
     }
 
     if (teachBot && targetDeviceId && targetDeviceId !== 'unknown') {
       const history = allMessages[selectedContactId] || [];
       const lastUserMsg = [...history].reverse().find(m => m.direction === Direction.INBOUND);
-      if (lastUserMsg) {
-        await trainBotWithPair(lastUserMsg.text, text, targetDeviceId);
-      }
+      if (lastUserMsg) await trainBotWithPair(lastUserMsg.text, text, targetDeviceId);
     }
   };
 
@@ -301,25 +278,17 @@ const App: React.FC = () => {
     if (!selectedContactId || !selectedContact) return;
     setAllMessages(prev => ({
       ...prev,
-      [selectedContactId]: prev[selectedContactId].map(m => 
-        m.id === messageId ? { ...m, text: newText } : m
-      )
+      [selectedContactId]: prev[selectedContactId].map(m => m.id === messageId ? { ...m, text: newText } : m)
     }));
     try {
         await supabase.from('messages').update({ message: newText }).eq('id', messageId);
     } catch (e) { console.error(e); }
-
     const messages = allMessages[selectedContactId];
     const msgIndex = messages.findIndex(m => m.id === messageId);
-    const historyBefore = messages.slice(0, msgIndex);
-    const lastUserMsg = [...historyBefore].reverse().find(m => m.direction === Direction.INBOUND);
+    const lastUserMsg = [...messages.slice(0, msgIndex)].reverse().find(m => m.direction === Direction.INBOUND);
     if (lastUserMsg) {
       let targetDeviceId = selectedContact.deviceId;
-      if ((!targetDeviceId || targetDeviceId === 'unknown') && devices.length === 1) targetDeviceId = devices[0].id;
-      
-      if (targetDeviceId && targetDeviceId !== 'unknown') {
-          await trainBotWithPair(lastUserMsg.text, newText, targetDeviceId);
-      }
+      if (targetDeviceId && targetDeviceId !== 'unknown') await trainBotWithPair(lastUserMsg.text, newText, targetDeviceId);
     }
   };
 
@@ -331,35 +300,22 @@ const App: React.FC = () => {
     } catch (err) { console.error(err); }
   };
 
-  // NEW: Handle Global Master Toggle
   const handleToggleGlobalAi = async (active: boolean) => {
     setIsGlobalAiActive(active);
     try {
       await supabase.from('system_settings').upsert({ key: 'is_ai_enabled', value: active }, { onConflict: 'key' });
-    } catch (err) {
-      console.error("Failed to save global setting:", err);
-    }
+    } catch (err) { console.error(err); }
   };
 
-  const handleAddDocuments = (newDocs: RAGDocument[]) => {
-    setRagDocs(prev => [...newDocs, ...prev]);
-  };
-
+  const handleAddDocuments = (newDocs: RAGDocument[]) => setRagDocs(prev => [...newDocs, ...prev]);
   const handleAddDevice = async (newDevice: Device) => {
      setDevices(prev => [...prev, newDevice]);
      try {
        await supabase.from('devices').insert({
-         id: newDevice.id,
-         name: newDevice.name,
-         phone_number: newDevice.phoneNumber,
-         color: newDevice.color,
-         fonnte_token: newDevice.fonnteToken, 
-         alert_email: newDevice.alertEmail,
-         admin_number: newDevice.adminNumber
+         id: newDevice.id, name: newDevice.name, phone_number: newDevice.phoneNumber, color: newDevice.color, fonnte_token: newDevice.fonnteToken, alert_email: newDevice.alertEmail, admin_number: newDevice.adminNumber
        });
      } catch (e) { console.warn(e); }
   };
-
   const handleDeleteDevice = async (deviceId: string) => {
     setDevices(prev => prev.filter(d => d.id !== deviceId));
     try { await supabase.from('devices').delete().eq('id', deviceId); } catch (e) { console.warn(e); }
@@ -369,63 +325,24 @@ const App: React.FC = () => {
     <div className="flex h-screen bg-gray-100 font-sans antialiased overflow-hidden">
       
       {/* Sidebar Navigation - DESKTOP ONLY */}
-      <div className="hidden md:flex w-16 bg-gray-900 text-white flex-col items-center py-6 gap-6 z-20">
+      <div className="hidden md:flex w-16 bg-gray-900 text-white flex-col items-center py-6 gap-6 z-20 shrink-0">
         <div className="mb-4">
            <LayoutGrid className="text-wa-light" size={28} />
         </div>
-        
-        <button 
-          onClick={() => setActiveView(AppView.DASHBOARD)}
-          className={`p-3 rounded-xl transition-all ${activeView === AppView.DASHBOARD ? 'bg-wa-green text-white shadow-lg' : 'text-gray-400 hover:bg-gray-800'}`}
-          title="Dashboard"
-        >
-          <MessageSquare size={20} />
-        </button>
-        
-        <button 
-          onClick={() => setActiveView(AppView.LEADS)} 
-          className={`p-3 rounded-xl transition-all ${activeView === AppView.LEADS ? 'bg-wa-green text-white shadow-lg' : 'text-gray-400 hover:bg-gray-800'}`}
-          title="Captured Leads"
-        >
-          <Users size={20} />
-        </button>
-
-        <button 
-          onClick={() => setActiveView(AppView.KNOWLEDGE)}
-          className={`p-3 rounded-xl transition-all ${activeView === AppView.KNOWLEDGE ? 'bg-wa-green text-white shadow-lg' : 'text-gray-400 hover:bg-gray-800'}`}
-          title="Knowledge Base"
-        >
-          <BookOpen size={20} />
-        </button>
-
-        <button 
-          onClick={() => setActiveView(AppView.DEVICES)}
-          className={`p-3 rounded-xl transition-all ${activeView === AppView.DEVICES ? 'bg-wa-green text-white shadow-lg' : 'text-gray-400 hover:bg-gray-800'}`}
-          title="WhatsApp Devices"
-        >
-          <Smartphone size={20} />
-        </button>
-
-        <div className="mt-auto flex flex-col items-center gap-4">
-          <button 
-            onClick={() => setActiveView(AppView.SETTINGS)}
-            className={`p-3 rounded-xl transition-all ${activeView === AppView.SETTINGS ? 'bg-wa-green text-white shadow-lg' : 'text-gray-400 hover:bg-gray-800'}`}
-            title="Settings"
-          >
-            <Settings size={20} />
-          </button>
-        </div>
+        <button onClick={() => setActiveView(AppView.DASHBOARD)} className={`p-3 rounded-xl transition-all ${activeView === AppView.DASHBOARD ? 'bg-wa-green text-white shadow-lg' : 'text-gray-400 hover:bg-gray-800'}`}><MessageSquare size={20} /></button>
+        <button onClick={() => setActiveView(AppView.LEADS)} className={`p-3 rounded-xl transition-all ${activeView === AppView.LEADS ? 'bg-wa-green text-white shadow-lg' : 'text-gray-400 hover:bg-gray-800'}`}><Users size={20} /></button>
+        <button onClick={() => setActiveView(AppView.KNOWLEDGE)} className={`p-3 rounded-xl transition-all ${activeView === AppView.KNOWLEDGE ? 'bg-wa-green text-white shadow-lg' : 'text-gray-400 hover:bg-gray-800'}`}><BookOpen size={20} /></button>
+        <button onClick={() => setActiveView(AppView.DEVICES)} className={`p-3 rounded-xl transition-all ${activeView === AppView.DEVICES ? 'bg-wa-green text-white shadow-lg' : 'text-gray-400 hover:bg-gray-800'}`}><Smartphone size={20} /></button>
+        <div className="mt-auto"><button onClick={() => setActiveView(AppView.SETTINGS)} className={`p-3 rounded-xl transition-all ${activeView === AppView.SETTINGS ? 'bg-wa-green text-white shadow-lg' : 'text-gray-400 hover:bg-gray-800'}`}><Settings size={20} /></button></div>
       </div>
 
       {/* Main Content Area */}
       <div className="flex flex-1 flex-col h-full overflow-hidden relative">
-        
         <div className="flex flex-1 overflow-hidden relative">
-          
           {activeView === AppView.DASHBOARD && (
             <>
               {/* Chat List: Hidden on Mobile if Contact Selected */}
-              <div className={`${selectedContactId ? 'hidden md:flex' : 'flex'} w-full md:w-auto h-full bg-white border-r border-gray-200 z-10`}>
+              <div className={`${selectedContactId ? 'hidden md:flex' : 'flex'} w-full md:w-80 lg:w-96 h-full bg-white border-r border-gray-200 z-10 shrink-0`}>
                 <ChatList 
                     contacts={contacts} 
                     devices={devices}
@@ -437,7 +354,7 @@ const App: React.FC = () => {
               </div>
 
               {/* Chat Window: Hidden on Mobile if NO Contact Selected */}
-              <div className={`${!selectedContactId ? 'hidden md:flex' : 'flex'} flex-1 h-full bg-wa-bg relative`}>
+              <div className={`${!selectedContactId ? 'hidden md:flex' : 'flex'} flex-1 h-full bg-wa-bg relative overflow-hidden`}>
                 {selectedContact ? (
                     <ChatWindow 
                         contact={selectedContact}
@@ -454,105 +371,38 @@ const App: React.FC = () => {
                         {loadingInitial ? (
                             <div className="animate-spin text-wa-green mb-4"><Activity size={40} /></div>
                         ) : (
-                            <div className="bg-white p-8 rounded-full shadow-lg mb-6">
-                                <LayoutGrid size={64} className="text-wa-green" />
-                            </div>
+                            <div className="bg-white p-8 rounded-full shadow-lg mb-6"><LayoutGrid size={64} className="text-wa-green" /></div>
                         )}
                         <h1 className="text-3xl font-light text-gray-700 mb-2">WhatsAgent (Fonnte)</h1>
-                        <p className="text-gray-500 max-w-md text-center text-sm px-4">
-                        Select a conversation to start chatting via Cloud API.
-                        </p>
+                        <p className="text-gray-500 max-w-md text-center text-sm px-4">Select a conversation to start chatting.</p>
                     </div>
                 )}
               </div>
 
               {/* Knowledge Panel - Desktop Only */}
               {selectedContact && (
-                <div className="hidden xl:flex h-full">
-                    <KnowledgePanel 
-                        documents={ragDocs.filter(d => d.deviceId === selectedContact.deviceId)} 
-                        isVisible={true}
-                    />
+                <div className="hidden xl:flex h-full shrink-0">
+                    <KnowledgePanel documents={ragDocs.filter(d => d.deviceId === selectedContact.deviceId)} isVisible={true} />
                 </div>
               )}
             </>
           )}
 
-          {activeView === AppView.LEADS && (
-             <div className="flex-1 h-full overflow-hidden">
-                <LeadsTable devices={devices} /> 
-             </div>
-          )}
-
-          {activeView === AppView.KNOWLEDGE && (
-             <div className="flex-1 h-full overflow-hidden">
-                <KnowledgeBaseManager 
-                    documents={ragDocs}
-                    devices={devices}
-                    onAddDocuments={handleAddDocuments}
-                />
-             </div>
-          )}
-
-          {activeView === AppView.DEVICES && (
-             <div className="flex-1 h-full overflow-hidden">
-                <DeviceManager 
-                    devices={devices} 
-                    onAddDevice={handleAddDevice}
-                    onDeleteDevice={handleDeleteDevice}
-                />
-             </div>
-          )}
-          
-          {activeView === AppView.SETTINGS && (
-             <div className="flex-1 bg-gray-50 p-4 md:p-8 pb-24 overflow-y-auto">
-               <div className="max-w-3xl mx-auto space-y-6">
-                 <h1 className="text-2xl font-bold text-gray-800">System Configuration</h1>
-                 <IntegrationGuide />
-                 <hr className="border-gray-200 my-8" />
-                 <h2 className="text-xl font-bold text-gray-700">Database & Webhook</h2>
-                 <DatabaseSetup />
-                 <BackendLogicViewer />
-               </div>
-             </div>
-          )}
-
+          {activeView === AppView.LEADS && <div className="flex-1 h-full overflow-hidden"><LeadsTable devices={devices} /></div>}
+          {activeView === AppView.KNOWLEDGE && <div className="flex-1 h-full overflow-hidden"><KnowledgeBaseManager documents={ragDocs} devices={devices} onAddDocuments={handleAddDocuments} /></div>}
+          {activeView === AppView.DEVICES && <div className="flex-1 h-full overflow-hidden"><DeviceManager devices={devices} onAddDevice={handleAddDevice} onDeleteDevice={handleDeleteDevice} /></div>}
+          {activeView === AppView.SETTINGS && <div className="flex-1 bg-gray-50 p-4 md:p-8 pb-24 overflow-y-auto h-full"><div className="max-w-3xl mx-auto space-y-6"><h1 className="text-2xl font-bold text-gray-800">System Configuration</h1><IntegrationGuide /><hr className="border-gray-200 my-8" /><h2 className="text-xl font-bold text-gray-700">Database & Webhook</h2><DatabaseSetup /><BackendLogicViewer /></div></div>}
         </div>
 
-        {/* Bottom Navigation Bar - MOBILE ONLY */}
+        {/* Bottom Navigation Bar - MOBILE ONLY - HIDDEN WHEN CHAT IS OPEN */}
         {!selectedContactId && (
-            <div className="md:hidden bg-white border-t border-gray-200 flex justify-around items-center h-16 shrink-0 z-30 fixed bottom-0 left-0 right-0 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] pb-safe">
-                <button 
-                    onClick={() => { setActiveView(AppView.DASHBOARD); setSelectedContactId(null); }} 
-                    className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.DASHBOARD ? 'text-wa-green' : 'text-gray-400'}`}
-                >
-                    <MessageSquare size={20} />
-                    <span className="text-[10px] font-medium">Chats</span>
-                </button>
-                <button 
-                    onClick={() => setActiveView(AppView.LEADS)} 
-                    className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.LEADS ? 'text-wa-green' : 'text-gray-400'}`}
-                >
-                    <Users size={20} />
-                    <span className="text-[10px] font-medium">Leads</span>
-                </button>
-                <button 
-                    onClick={() => setActiveView(AppView.KNOWLEDGE)} 
-                    className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.KNOWLEDGE ? 'text-wa-green' : 'text-gray-400'}`}
-                >
-                    <BookOpen size={20} />
-                    <span className="text-[10px] font-medium">RAG</span>
-                </button>
-                <button 
-                    onClick={() => setActiveView(AppView.DEVICES)} 
-                    className={`p-2 rounded-lg flex flex-col items-center gap-1 w-full ${activeView === AppView.DEVICES ? 'text-wa-green' : 'text-gray-400'}`}
-                >
-                    <Smartphone size={20} />
-                    <span className="text-[10px] font-medium">Config</span>
-                </button>
+            <div className="md:hidden bg-white border-t border-gray-200 flex justify-around items-center h-16 shrink-0 z-30 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] pb-safe">
+                <button onClick={() => { setActiveView(AppView.DASHBOARD); setSelectedContactId(null); }} className={`p-2 flex flex-col items-center gap-1 w-full ${activeView === AppView.DASHBOARD ? 'text-wa-green' : 'text-gray-400'}`}><MessageSquare size={20} /><span className="text-[10px] font-medium">Chats</span></button>
+                <button onClick={() => setActiveView(AppView.LEADS)} className={`p-2 flex flex-col items-center gap-1 w-full ${activeView === AppView.LEADS ? 'text-wa-green' : 'text-gray-400'}`}><Users size={20} /><span className="text-[10px] font-medium">Leads</span></button>
+                <button onClick={() => setActiveView(AppView.KNOWLEDGE)} className={`p-2 flex flex-col items-center gap-1 w-full ${activeView === AppView.KNOWLEDGE ? 'text-wa-green' : 'text-gray-400'}`}><BookOpen size={20} /><span className="text-[10px] font-medium">RAG</span></button>
+                <button onClick={() => setActiveView(AppView.DEVICES)} className={`p-2 flex flex-col items-center gap-1 w-full ${activeView === AppView.DEVICES ? 'text-wa-green' : 'text-gray-400'}`}><Smartphone size={20} /><span className="text-[10px] font-medium">Config</span></button>
             </div>
         )}
-
       </div>
     </div>
   );
