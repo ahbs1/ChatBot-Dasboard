@@ -2,29 +2,41 @@ import React, { useState } from 'react';
 import { Button } from './Button';
 import { Copy, Check, Database, Globe, AlertTriangle, Terminal, Github, ChevronDown, ChevronRight, ShieldAlert } from 'lucide-react';
 
-const SQL_SETUP = `-- ⚠️ 1. FIX PERMISSIONS (JALANKAN INI UTAMA)
--- Ini mengatasi error "permission denied for sequence messages_id_seq"
+const SQL_SETUP = `-- ⚠️ 1. FIX PERMISSIONS (CRITICAL FIX)
+-- Jalankan ini untuk mengatasi "permission denied for sequence"
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO postgres, anon, authenticated, service_role;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO postgres, anon, authenticated, service_role;
 
--- 2. Create Tables (Jika belum ada)
+-- 2. Create Tables (Idempotent - aman dijalankan berulang)
 create table if not exists devices (id text primary key, name text not null, phone_number text, color text default 'bg-blue-500', fonnte_token text, alert_email text, admin_number text, created_at timestamp with time zone default timezone('utc'::text, now()) not null);
 create table if not exists conversations (wa_number text primary key, device_id text references devices(id) on delete set null, name text, mode text check (mode in ('bot', 'agent')) default 'bot', last_active timestamp with time zone default timezone('utc'::text, now()) not null);
 create table if not exists messages (id bigserial primary key, conversation_id text references conversations(wa_number) on delete cascade, message text not null, direction text check (direction in ('inbound', 'outbound')) not null, status text check (status in ('pending', 'sent', 'delivered', 'read', 'failed')) default 'sent', created_at timestamp with time zone default timezone('utc'::text, now()) not null);
 create table if not exists knowledge_base (id bigserial primary key, device_id text references devices(id) on delete cascade, content text, embedding vector(768), metadata jsonb);
 create table if not exists leads (id bigserial primary key, device_id text references devices(id) on delete cascade, phone_number text not null, name text, address text, updated_at timestamp with time zone default timezone('utc'::text, now()) not null, unique(device_id, phone_number));
 
--- 3. DISABLE SECURITY FOR DASHBOARD (Wajib untuk Realtime)
+-- 3. DISABLE SECURITY (RLS) FOR DASHBOARD
 alter table devices disable row level security;
 alter table conversations disable row level security;
 alter table messages disable row level security;
 alter table knowledge_base disable row level security;
 alter table leads disable row level security;
 
--- 4. ENABLE REALTIME
-alter publication supabase_realtime add table messages;
-alter publication supabase_realtime add table conversations;
-alter publication supabase_realtime add table leads;
+-- 4. ENABLE REALTIME (SAFE MODE)
+-- Menggunakan DO block agar tidak error jika tabel sudah ada di realtime
+DO $$
+BEGIN
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE messages;
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+  
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE conversations;
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+  
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE leads;
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+END $$;
 
 -- 5. Vector Function
 create or replace function match_documents (query_embedding vector(768), match_threshold float, match_count int, filter_device_id text)
@@ -69,7 +81,7 @@ export const DatabaseSetup: React.FC = () => {
         <div className="p-4 bg-red-50 border-b border-red-200 flex justify-between items-center">
           <h3 className="font-bold text-red-800 flex items-center gap-2">
             <ShieldAlert size={20} />
-            1. Perbaikan Database (Fix Error 42501)
+            1. Perbaikan Database (Script Baru & Aman)
           </h3>
           <Button 
             variant="danger" 
@@ -81,9 +93,9 @@ export const DatabaseSetup: React.FC = () => {
           </Button>
         </div>
         <div className="p-6">
-          <div className="bg-yellow-50 border border-yellow-200 p-3 rounded mb-4 text-xs text-yellow-800">
-             <strong>DIAGNOSA:</strong> Error <code>messages_id_seq</code> berarti database menolak pembuatan ID pesan baru. <br/>
-             <strong>SOLUSI:</strong> Copy kode di bawah dan jalankan di <strong>Supabase SQL Editor</strong> sekarang juga.
+          <div className="bg-green-50 border border-green-200 p-3 rounded mb-4 text-xs text-green-800">
+             <strong>UPDATE:</strong> Script ini sudah diperbarui agar tidak error "Relation already exists". <br/>
+             Silakan copy dan jalankan sekali lagi di Supabase SQL Editor untuk memastikan 100% aman.
           </div>
           <pre className="bg-gray-900 text-yellow-100 p-4 rounded-lg overflow-x-auto text-xs font-mono leading-relaxed border border-gray-700 max-h-48">
             <code>{SQL_SETUP}</code>
