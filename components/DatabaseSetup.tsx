@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Button } from './Button';
-import { Copy, Check, Database, Terminal, Globe } from 'lucide-react';
+import { Copy, Check, Database, Terminal, Globe, AlertTriangle } from 'lucide-react';
 
 const SQL_SETUP = `-- 1. Enable Extensions
 create extension if not exists vector;
@@ -92,9 +92,18 @@ end;
 $$;
 `;
 
-const EDGE_FUNCTION_CODE = `// SUPABASE EDGE FUNCTION: 'fonnte-webhook'
-// 1. Create function: supabase functions new fonnte-webhook
-// 2. Deploy: supabase functions deploy fonnte-webhook --no-verify-jwt
+const EDGE_FUNCTION_CODE = `/**
+ * ⚠️ THIS IS NOT SQL! ⚠️
+ * 
+ * Do NOT run this in the Supabase SQL Editor.
+ * This is a Deno/TypeScript file for a Supabase Edge Function.
+ * 
+ * DEPLOYMENT INSTRUCTIONS:
+ * 1. Install Supabase CLI
+ * 2. Run: supabase functions new fonnte-webhook
+ * 3. Paste this code into supabase/functions/fonnte-webhook/index.ts
+ * 4. Run: supabase functions deploy fonnte-webhook --no-verify-jwt
+ */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -108,10 +117,8 @@ serve(async (req) => {
   try {
     const { sender, message, device } = await req.json(); // Fonnte Payload
     
-    // 1. Find the device by phone number (Fonnte 'device' field usually contains the sender device info)
-    // Note: You might need to adjust logic to match Fonnte's specific device ID or Token
-    // For simplicity, we assume we find the device that has this 'sender' as a contact OR generic mapping.
-    // Ideally, match 'device' from payload to 'phone_number' in devices table.
+    // 1. Find the device by phone number
+    // Note: Fonnte payload structure might vary. Adjust 'sender' / 'device' extraction as needed.
     
     // 2. Insert Message
     const { error } = await supabase.from('messages').insert({
@@ -125,7 +132,6 @@ serve(async (req) => {
     await supabase.from('conversations').upsert({
       wa_number: sender,
       last_active: new Date(),
-      // Simple logic: if new, default to 'bot'
     }, { onConflict: 'wa_number', ignoreDuplicates: false });
 
     return new Response(JSON.stringify({ status: "ok" }), { headers: { "Content-Type": "application/json" } });
@@ -153,7 +159,7 @@ export const DatabaseSetup: React.FC = () => {
         <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
           <h3 className="font-semibold text-gray-700 flex items-center gap-2">
             <Database size={18} className="text-blue-600" />
-            1. Supabase Database Schema
+            1. Supabase Database Schema (SQL)
           </h3>
           <Button 
             variant="secondary" 
@@ -165,6 +171,9 @@ export const DatabaseSetup: React.FC = () => {
           </Button>
         </div>
         <div className="p-6">
+          <p className="text-sm text-gray-600 mb-4">
+            Run this in the <strong>SQL Editor</strong> of your Supabase dashboard.
+          </p>
           <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-xs font-mono leading-relaxed border border-gray-700 max-h-64">
             <code>{SQL_SETUP}</code>
           </pre>
@@ -172,10 +181,10 @@ export const DatabaseSetup: React.FC = () => {
       </div>
 
       {/* 2. EDGE FUNCTION */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
-          <h3 className="font-semibold text-gray-700 flex items-center gap-2">
-            <Globe size={18} className="text-purple-600" />
+      <div className="bg-white rounded-lg shadow-sm border border-red-200 overflow-hidden">
+        <div className="p-4 bg-red-50 border-b border-red-200 flex justify-between items-center">
+          <h3 className="font-semibold text-red-800 flex items-center gap-2">
+            <Globe size={18} />
             2. Webhook Handler (Edge Function)
           </h3>
           <Button 
@@ -188,11 +197,17 @@ export const DatabaseSetup: React.FC = () => {
           </Button>
         </div>
         <div className="p-6">
-          <p className="text-sm text-gray-600 mb-4">
-             You need to deploy this function to Supabase to receive messages from Fonnte.
-             <br/>
-             <strong>Webhook URL:</strong> <code>https://[your-project-ref].supabase.co/functions/v1/fonnte-webhook</code>
-          </p>
+          <div className="flex items-start gap-3 bg-red-100 p-3 rounded-lg mb-4 border border-red-200">
+             <AlertTriangle className="text-red-600 flex-shrink-0" size={20} />
+             <div>
+                <p className="text-sm font-bold text-red-800">DO NOT RUN THIS AS SQL!</p>
+                <p className="text-xs text-red-700 mt-1">
+                    This is TypeScript code. Running this in the SQL Editor will cause syntax errors (<code>// ...</code>).
+                    <br/>
+                    You must deploy this using the <strong>Supabase CLI</strong> or via the Supabase Dashboard "Edge Functions" section (if available).
+                </p>
+             </div>
+          </div>
           <pre className="bg-gray-900 text-purple-100 p-4 rounded-lg overflow-x-auto text-xs font-mono leading-relaxed border border-gray-700 max-h-64">
             <code>{EDGE_FUNCTION_CODE}</code>
           </pre>
