@@ -147,6 +147,7 @@ const App: React.FC = () => {
 
     setContacts(prev => {
         const exists = prev.find(c => c.id === contactId);
+        // If contact exists, just update it.
         if (exists) {
             return prev.map(c => 
                 c.id === contactId 
@@ -159,9 +160,11 @@ const App: React.FC = () => {
                   : c
               ).sort((a, b) => b.lastMessageTime.getTime() - a.lastMessageTime.getTime());
         } else {
+            // If contact does NOT exist (new incoming chat from DB Realtime), add it.
+            // Note: We don't have the device_id in the message payload usually, but we can try to reload or default.
             return [{
                 id: contactId,
-                deviceId: 'unknown', 
+                deviceId: 'unknown', // Will be updated on refresh or if we listen to conversation updates
                 name: contactId,
                 phoneNumber: contactId,
                 avatar: `https://ui-avatars.com/api/?name=${contactId}`,
@@ -213,9 +216,19 @@ const App: React.FC = () => {
     if (!selectedContactId || !selectedContact) return;
 
     // 1. Get Device Token
-    const device = devices.find(d => d.id === selectedContact.deviceId);
+    // FIX: If deviceId is unknown, but user only has ONE device, default to that one.
+    let targetDeviceId = selectedContact.deviceId;
+    
+    if ((!targetDeviceId || targetDeviceId === 'unknown') && devices.length === 1) {
+        targetDeviceId = devices[0].id;
+        // Optionally update the conversation in DB so we don't guess next time
+        supabase.from('conversations').update({ device_id: targetDeviceId }).eq('wa_number', selectedContactId).then();
+    }
+
+    const device = devices.find(d => d.id === targetDeviceId);
+
     if (!device?.fonnteToken) {
-        alert("Error: No Fonnte Token configured for this device.");
+        alert("Error: No Fonnte Token configured for this device. Please check Device Manager.");
         return;
     }
 
@@ -247,8 +260,6 @@ const App: React.FC = () => {
           updateContactLastMessage(selectedContactId, text);
 
           // 3. CALL FONNTE API
-          // Note: In production, this should ideally be done via an Edge Function to hide the token.
-          // For now, client-side call as requested.
           const formData = new FormData();
           formData.append('target', selectedContactId);
           formData.append('message', text);
@@ -272,11 +283,11 @@ const App: React.FC = () => {
       alert("Failed to save message to database. Check connection.");
     }
 
-    if (teachBot) {
+    if (teachBot && targetDeviceId && targetDeviceId !== 'unknown') {
       const history = allMessages[selectedContactId] || [];
       const lastUserMsg = [...history].reverse().find(m => m.direction === Direction.INBOUND);
       if (lastUserMsg) {
-        await trainBotWithPair(lastUserMsg.text, text, selectedContact.deviceId);
+        await trainBotWithPair(lastUserMsg.text, text, targetDeviceId);
       }
     }
   };
@@ -298,7 +309,13 @@ const App: React.FC = () => {
     const historyBefore = messages.slice(0, msgIndex);
     const lastUserMsg = [...historyBefore].reverse().find(m => m.direction === Direction.INBOUND);
     if (lastUserMsg) {
-      await trainBotWithPair(lastUserMsg.text, newText, selectedContact.deviceId);
+      // Need device ID for training
+      let targetDeviceId = selectedContact.deviceId;
+      if ((!targetDeviceId || targetDeviceId === 'unknown') && devices.length === 1) targetDeviceId = devices[0].id;
+      
+      if (targetDeviceId && targetDeviceId !== 'unknown') {
+          await trainBotWithPair(lastUserMsg.text, newText, targetDeviceId);
+      }
     }
   };
 
