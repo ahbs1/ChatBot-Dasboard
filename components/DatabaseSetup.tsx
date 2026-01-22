@@ -1,91 +1,41 @@
 import React, { useState } from 'react';
 import { Button } from './Button';
-import { Copy, Check, Database, Globe, AlertTriangle, Terminal, ChevronRight, ChevronDown } from 'lucide-react';
+import { Copy, Check, Database, Globe, AlertTriangle, Terminal, Github, ChevronDown, ChevronRight, ShieldAlert } from 'lucide-react';
 
-const SQL_SETUP = `-- 1. Enable Extensions
-create extension if not exists vector;
+const SQL_SETUP = `-- ⚠️ 1. FIX PERMISSIONS (JALANKAN INI UTAMA)
+-- Ini mengatasi error "permission denied for sequence messages_id_seq"
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO postgres, anon, authenticated, service_role;
 
--- 2. Create Devices Table (Updated for Fonnte)
-create table if not exists devices (
-  id text primary key, 
-  name text not null, 
-  phone_number text, 
-  color text default 'bg-blue-500', 
-  fonnte_token text, -- Stores Fonnte API Key
-  alert_email text, 
-  admin_number text, 
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
+-- 2. Create Tables (Jika belum ada)
+create table if not exists devices (id text primary key, name text not null, phone_number text, color text default 'bg-blue-500', fonnte_token text, alert_email text, admin_number text, created_at timestamp with time zone default timezone('utc'::text, now()) not null);
+create table if not exists conversations (wa_number text primary key, device_id text references devices(id) on delete set null, name text, mode text check (mode in ('bot', 'agent')) default 'bot', last_active timestamp with time zone default timezone('utc'::text, now()) not null);
+create table if not exists messages (id bigserial primary key, conversation_id text references conversations(wa_number) on delete cascade, message text not null, direction text check (direction in ('inbound', 'outbound')) not null, status text check (status in ('pending', 'sent', 'delivered', 'read', 'failed')) default 'sent', created_at timestamp with time zone default timezone('utc'::text, now()) not null);
+create table if not exists knowledge_base (id bigserial primary key, device_id text references devices(id) on delete cascade, content text, embedding vector(768), metadata jsonb);
+create table if not exists leads (id bigserial primary key, device_id text references devices(id) on delete cascade, phone_number text not null, name text, address text, updated_at timestamp with time zone default timezone('utc'::text, now()) not null, unique(device_id, phone_number));
 
--- 3. Create Knowledge Base (RAG)
-create table if not exists knowledge_base (
-  id bigserial primary key,
-  device_id text references devices(id) on delete cascade,
-  content text,
-  embedding vector(768), 
-  metadata jsonb
-);
+-- 3. DISABLE SECURITY FOR DASHBOARD (Wajib untuk Realtime)
+alter table devices disable row level security;
+alter table conversations disable row level security;
+alter table messages disable row level security;
+alter table knowledge_base disable row level security;
+alter table leads disable row level security;
 
--- 4. Create Leads (CRM)
-create table if not exists leads (
-  id bigserial primary key,
-  device_id text references devices(id) on delete cascade,
-  phone_number text not null,
-  name text,
-  address text,
-  updated_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  unique(device_id, phone_number) 
-);
-
--- 5. Create Conversations
-create table if not exists conversations (
-  wa_number text primary key, 
-  device_id text references devices(id) on delete set null,
-  name text,
-  mode text check (mode in ('bot', 'agent')) default 'bot',
-  last_active timestamp with time zone default timezone('utc'::text, now()) not null
-);
-
--- 6. Create Messages
-create table if not exists messages (
-  id bigserial primary key,
-  conversation_id text references conversations(wa_number) on delete cascade,
-  message text not null,
-  direction text check (direction in ('inbound', 'outbound')) not null,
-  status text check (status in ('pending', 'sent', 'delivered', 'read', 'failed')) default 'sent',
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
-);
-
--- 7. Realtime
+-- 4. ENABLE REALTIME
 alter publication supabase_realtime add table messages;
 alter publication supabase_realtime add table conversations;
+alter publication supabase_realtime add table leads;
 
--- 8. Similarity Search Function
-create or replace function match_documents (
-  query_embedding vector(768),
-  match_threshold float,
-  match_count int,
-  filter_device_id text
-)
-returns table (
-  id bigint,
-  content text,
-  metadata jsonb,
-  similarity float
-)
+-- 5. Vector Function
+create or replace function match_documents (query_embedding vector(768), match_threshold float, match_count int, filter_device_id text)
+returns table (id bigint, content text, metadata jsonb, similarity float)
 language plpgsql
 as $$
 begin
   return query
-  select
-    kb.id,
-    kb.content,
-    kb.metadata,
-    1 - (kb.embedding <=> query_embedding) as similarity
+  select kb.id, kb.content, kb.metadata, 1 - (kb.embedding <=> query_embedding) as similarity
   from knowledge_base kb
-  where 
-    kb.device_id = filter_device_id
-    and 1 - (kb.embedding <=> query_embedding) > match_threshold
+  where kb.device_id = filter_device_id and 1 - (kb.embedding <=> query_embedding) > match_threshold
   order by kb.embedding <=> query_embedding
   limit match_count;
 end;
@@ -93,76 +43,17 @@ $$;
 `;
 
 const EDGE_FUNCTION_CODE = `// FILE: supabase/functions/fonnte-webhook/index.ts
+// Lihat file fisik di project Anda untuk kode lengkap.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// Access environment variables securely
-const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-serve(async (req) => {
-  try {
-    // 1. Parse Fonnte Payload
-    const payload = await req.json();
-    console.log("Fonnte Payload:", payload);
-
-    // Fonnte sends: { sender: "628...", message: "text", name: "Name", device: "token/id" }
-    const { sender, message, name, device } = payload;
-
-    // Filter: Ignore status updates or empty messages
-    if (!sender || !message) {
-      return new Response(JSON.stringify({ status: "ignored" }), { headers: { "Content-Type": "application/json" } });
-    }
-
-    // 2. Insert Message into Database
-    const { error: msgError } = await supabase.from('messages').insert({
-      conversation_id: sender,
-      message: message,
-      direction: 'inbound',
-      status: 'read' // Fonnte webhooks are typically 'received' messages
-    });
-
-    if (msgError) throw msgError;
-
-    // 3. Upsert Conversation / Lead
-    // We try to update the 'last_active' timestamp. If specific device mapping is needed,
-    // you might need to query the 'devices' table using the Fonnte token first.
-    
-    // For now, we assume standard mapping or update existing:
-    const { error: convoError } = await supabase.from('conversations').upsert({
-      wa_number: sender,
-      name: name || sender,
-      last_active: new Date(),
-      // 'device_id' will be null for new chats unless we query the devices table.
-      // Ideally, perform a lookup here if you manage multiple devices.
-    }, { onConflict: 'wa_number' });
-
-    if (convoError) throw convoError;
-
-    // 4. (Optional) Auto-reply Logic via Gemini could be triggered here
-    // or handled by the frontend listening to Realtime changes.
-
-    return new Response(JSON.stringify({ status: "ok" }), { 
-      status: 200,
-      headers: { "Content-Type": "application/json" } 
-    });
-
-  } catch (err) {
-    console.error("Webhook Error:", err);
-    return new Response(JSON.stringify({ error: err.message }), { 
-      status: 400, // Return 400 so Fonnte knows something went wrong, or 200 to suppress retries
-      headers: { "Content-Type": "application/json" } 
-    });
-  }
-});
+// ... (Kode lengkap ada di file fisik) ...
 `;
 
 export const DatabaseSetup: React.FC = () => {
   const [copiedSql, setCopiedSql] = useState(false);
-  const [copiedEdge, setCopiedEdge] = useState(false);
-  const [showTutorial, setShowTutorial] = useState(false);
+  const [deployMode, setDeployMode] = useState<'cli' | 'github'>('github');
 
   const copyToClipboard = (text: string, setter: (val: boolean) => void) => {
     navigator.clipboard.writeText(text);
@@ -171,108 +62,87 @@ export const DatabaseSetup: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 mt-6">
+    <div className="space-y-8 mt-6">
       
-      {/* 1. DATABASE SCHEMA */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
-          <h3 className="font-semibold text-gray-700 flex items-center gap-2">
-            <Database size={18} className="text-blue-600" />
-            1. Supabase Database Schema (SQL)
+      {/* 1. DATABASE FIX */}
+      <div className="bg-white rounded-lg shadow-sm border border-red-200 overflow-hidden ring-2 ring-red-100">
+        <div className="p-4 bg-red-50 border-b border-red-200 flex justify-between items-center">
+          <h3 className="font-bold text-red-800 flex items-center gap-2">
+            <ShieldAlert size={20} />
+            1. Perbaikan Database (Fix Error 42501)
           </h3>
           <Button 
-            variant="secondary" 
+            variant="danger" 
             onClick={() => copyToClipboard(SQL_SETUP, setCopiedSql)} 
             className="text-xs h-8"
-            icon={copiedSql ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+            icon={copiedSql ? <Check size={14} /> : <Copy size={14} />}
           >
-            {copiedSql ? 'Copied' : 'Copy SQL'}
+            {copiedSql ? 'Copied' : 'Copy SQL Fix'}
           </Button>
         </div>
         <div className="p-6">
-          <p className="text-sm text-gray-600 mb-4">
-            Run this in the <strong>SQL Editor</strong> of your Supabase dashboard to create the necessary tables.
-          </p>
-          <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-xs font-mono leading-relaxed border border-gray-700 max-h-64">
+          <div className="bg-yellow-50 border border-yellow-200 p-3 rounded mb-4 text-xs text-yellow-800">
+             <strong>DIAGNOSA:</strong> Error <code>messages_id_seq</code> berarti database menolak pembuatan ID pesan baru. <br/>
+             <strong>SOLUSI:</strong> Copy kode di bawah dan jalankan di <strong>Supabase SQL Editor</strong> sekarang juga.
+          </div>
+          <pre className="bg-gray-900 text-yellow-100 p-4 rounded-lg overflow-x-auto text-xs font-mono leading-relaxed border border-gray-700 max-h-48">
             <code>{SQL_SETUP}</code>
           </pre>
         </div>
       </div>
 
       {/* 2. EDGE FUNCTION */}
-      <div className="bg-white rounded-lg shadow-sm border border-red-200 overflow-hidden">
-        <div className="p-4 bg-red-50 border-b border-red-200 flex justify-between items-center">
-          <h3 className="font-semibold text-red-800 flex items-center gap-2">
+      <div className="bg-white rounded-lg shadow-sm border border-purple-200 overflow-hidden">
+        <div className="p-4 bg-purple-50 border-b border-purple-200">
+          <h3 className="font-semibold text-purple-800 flex items-center gap-2 mb-1">
             <Globe size={18} />
-            2. Webhook Handler (Edge Function)
+            2. Webhook / Edge Function
           </h3>
-          <Button 
-            variant="secondary" 
-            onClick={() => copyToClipboard(EDGE_FUNCTION_CODE, setCopiedEdge)} 
-            className="text-xs h-8"
-            icon={copiedEdge ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
-          >
-            {copiedEdge ? 'Copied' : 'Copy Code'}
-          </Button>
+          <p className="text-xs text-purple-600">Pastikan URL Webhook di Fonnte sudah benar (lihat tutorial Deploy via GitHub di bawah).</p>
         </div>
-        <div className="p-6">
-          
-          <div className="flex items-start gap-3 bg-red-100 p-3 rounded-lg mb-6 border border-red-200">
-             <AlertTriangle className="text-red-600 flex-shrink-0" size={20} />
-             <div>
-                <p className="text-sm font-bold text-red-800">DO NOT RUN THIS IN SQL EDITOR!</p>
-                <p className="text-xs text-red-700 mt-1">
-                    This is TypeScript code for a server-side function. It must be deployed via CLI.
-                </p>
-             </div>
-          </div>
 
-          <button 
-            onClick={() => setShowTutorial(!showTutorial)}
-            className="w-full flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg mb-4 hover:bg-gray-100 transition-colors"
-          >
-            <span className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                <Terminal size={16} />
-                Tutorial: How to Deploy this Function
-            </span>
-            {showTutorial ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          </button>
+        <div className="p-4 border-b border-gray-100 bg-white">
+            <div className="flex gap-4">
+                <button 
+                    onClick={() => setDeployMode('github')}
+                    className={`flex-1 py-3 px-4 rounded-lg border text-sm font-medium flex items-center justify-center gap-2 transition-all ${deployMode === 'github' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}
+                >
+                    <Github size={16} />
+                    Cara Tanpa Terminal (GitHub)
+                </button>
+                <button 
+                    onClick={() => setDeployMode('cli')}
+                    className={`flex-1 py-3 px-4 rounded-lg border text-sm font-medium flex items-center justify-center gap-2 transition-all ${deployMode === 'cli' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}
+                >
+                    <Terminal size={16} />
+                    Cara Terminal (CLI)
+                </button>
+            </div>
+        </div>
 
-          {showTutorial && (
-              <div className="bg-gray-800 text-gray-200 p-4 rounded-lg text-xs font-mono mb-4 space-y-3 border border-gray-700">
-                  <div>
-                      <p className="text-green-400 font-bold"># 1. Install Supabase CLI (Terminal)</p>
-                      <p className="opacity-70">npm install -g supabase</p>
-                  </div>
-                  <div>
-                      <p className="text-green-400 font-bold"># 2. Login to Supabase</p>
-                      <p className="opacity-70">supabase login</p>
-                  </div>
-                  <div>
-                      <p className="text-green-400 font-bold"># 3. Create Function</p>
-                      <p className="opacity-70">supabase functions new fonnte-webhook</p>
-                  </div>
-                  <div>
-                      <p className="text-green-400 font-bold"># 4. Paste Code</p>
-                      <p className="opacity-70">Copy the code below and paste it into: <strong>supabase/functions/fonnte-webhook/index.ts</strong></p>
-                  </div>
-                  <div>
-                      <p className="text-green-400 font-bold"># 5. Deploy</p>
-                      <p className="opacity-70">supabase functions deploy fonnte-webhook --no-verify-jwt</p>
-                  </div>
-                  <div>
-                      <p className="text-green-400 font-bold"># 6. Copy URL to Fonnte</p>
-                      <p className="opacity-70">Get the URL from terminal output and paste to Fonnte Dashboard Webhook URL.</p>
+        <div className="p-6 bg-gray-50">
+          {deployMode === 'github' && (
+              <div className="space-y-4 animate-in fade-in duration-300">
+                  <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
+                      <h4 className="font-bold text-blue-900 text-sm mb-2">Langkah Deploy:</h4>
+                      <ol className="list-decimal list-inside text-xs text-blue-800 space-y-2 leading-relaxed">
+                          <li>Upload project ini ke <strong>GitHub</strong>.</li>
+                          <li>Buka Dashboard Supabase &gt; Edge Functions &gt; <strong>Connect to GitHub</strong>.</li>
+                          <li>Setelah status "Active", copy URL Function.</li>
+                          <li>Paste ke Fonnte &gt; Device &gt; Webhook URL.</li>
+                      </ol>
                   </div>
               </div>
           )}
-
-          <pre className="bg-gray-900 text-purple-100 p-4 rounded-lg overflow-x-auto text-xs font-mono leading-relaxed border border-gray-700 max-h-80">
-            <code>{EDGE_FUNCTION_CODE}</code>
-          </pre>
+           {deployMode === 'cli' && (
+             <div className="space-y-4 animate-in fade-in duration-300">
+                  <div className="bg-gray-900 text-gray-200 p-4 rounded-lg font-mono text-xs space-y-3">
+                      <p className="text-green-400">supabase functions deploy fonnte-webhook --no-verify-jwt</p>
+                  </div>
+             </div>
+          )}
         </div>
       </div>
-
     </div>
   );
 };
